@@ -1,0 +1,366 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user account linking Google Auth UID to a family vault and language preference.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the user."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address from Google Sign-In."
+        },
+        "photoUrl": {
+          "type": "string",
+          "description": "Optional profile photo URL."
+        },
+        "familyId": {
+          "type": "string",
+          "description": "ID of the family vault the user belongs to, or empty if onboarding."
+        },
+        "preferredLanguage": {
+          "type": "string",
+          "enum": ["en", "kn"],
+          "description": "Preferred UI language code (English or Kannada)."
+        },
+        "username": {
+          "type": "string",
+          "description": "Optional normalized family or member username when signed in via Family Username Login."
+        },
+        "authMethod": {
+          "type": "string",
+          "enum": ["google", "family_username", "member_username"],
+          "description": "Optional authentication method identifier."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp (FieldValue.serverTimestamp()) when profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp (FieldValue.serverTimestamp()) when profile was updated."
+        }
+      },
+      "required": ["userId", "displayName", "email", "familyId", "preferredLanguage", "createdAt", "updatedAt"]
+    },
+    "FamilyAccount": {
+      "title": "FamilyAccount",
+      "description": "Isolated family vault root containing admin ownership, member UIDs, and backup metadata.",
+      "type": "object",
+      "properties": {
+        "familyId": {
+          "type": "string",
+          "description": "Unique identifier for the family document."
+        },
+        "familyName": {
+          "type": "string",
+          "description": "Human-readable name of the family."
+        },
+        "familyCode": {
+          "type": "string",
+          "description": "Shareable Family ID code used by members to join."
+        },
+        "adminUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the family Admin."
+        },
+        "memberUids": {
+          "type": "array",
+          "description": "Bounded list of authenticated member UIDs belonging to this family."
+        },
+        "totalDocuments": {
+          "type": "integer",
+          "description": "Count of active documents stored in the family vault."
+        },
+        "lastBackupAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional server timestamp of the last completed cloud backup."
+        },
+        "autoBackupEnabled": {
+          "type": "boolean",
+          "description": "Whether automatic scheduled cloud backup is enabled for the family."
+        },
+        "familyUsername": {
+          "type": "string",
+          "description": "Optional unique lowercase username configured by the Admin for family login."
+        },
+        "hasFamilyPassword": {
+          "type": "boolean",
+          "description": "Optional indicator showing whether a family password has been provisioned server-side."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when family was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when family was last updated."
+        }
+      },
+      "required": ["familyId", "familyName", "familyCode", "adminUid", "memberUids", "totalDocuments", "autoBackupEnabled", "createdAt", "updatedAt"]
+    },
+    "FamilyInvite": {
+      "title": "FamilyInvite",
+      "description": "Exact-match invite lookup document keyed by Family ID code so prospective members can resolve familyId without listing families.",
+      "type": "object",
+      "properties": {
+        "familyCode": {
+          "type": "string",
+          "description": "Shareable Family ID code."
+        },
+        "familyId": {
+          "type": "string",
+          "description": "Target family document ID."
+        },
+        "familyName": {
+          "type": "string",
+          "description": "Family display name."
+        },
+        "adminUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the family Admin."
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether the invite code is currently active."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when invite was created."
+        }
+      },
+      "required": ["familyCode", "familyId", "familyName", "adminUid", "active", "createdAt"]
+    },
+    "FamilyMember": {
+      "title": "FamilyMember",
+      "description": "Profile of a family member within an isolated family vault.",
+      "type": "object",
+      "properties": {
+        "familyId": {
+          "type": "string",
+          "description": "Parent family ID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the family member."
+        },
+        "relation": {
+          "type": "string",
+          "description": "Relationship label (e.g., Self, Spouse, Child, Parent)."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "member"],
+          "description": "Role inside the family."
+        },
+        "linkedUserId": {
+          "type": "string",
+          "description": "Linked Firebase Auth UID if this member uses an app login, or empty string."
+        },
+        "email": {
+          "type": "string",
+          "description": "Optional email address of the member."
+        },
+        "photoBase64": {
+          "type": "string",
+          "description": "Optional compressed avatar thumbnail."
+        },
+        "memberUids": {
+          "type": "array",
+          "description": "Denormalized family member UIDs for fast rule-enforced list queries."
+        },
+        "adminUid": {
+          "type": "string",
+          "description": "Denormalized family admin UID."
+        },
+        "memberUsername": {
+          "type": "string",
+          "description": "Optional individual member login username provisioned by Admin."
+        },
+        "loginEnabled": {
+          "type": "boolean",
+          "description": "Optional flag indicating whether this member login is currently active."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when member was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when member was updated."
+        }
+      },
+      "required": ["familyId", "name", "relation", "role", "linkedUserId", "email", "memberUids", "adminUid", "createdAt", "updatedAt"]
+    },
+    "FamilyDocument": {
+      "title": "FamilyDocument",
+      "description": "Encrypted family document metadata, expiry tracking, and member-level access permissions.",
+      "type": "object",
+      "properties": {
+        "familyId": {
+          "type": "string",
+          "description": "Parent family ID."
+        },
+        "title": {
+          "type": "string",
+          "description": "Document display title."
+        },
+        "category": {
+          "type": "string",
+          "description": "One of the 12 supported document categories."
+        },
+        "memberId": {
+          "type": "string",
+          "description": "ID of the family member this document belongs to."
+        },
+        "memberName": {
+          "type": "string",
+          "description": "Name of the family member."
+        },
+        "uploadedByUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the uploader."
+        },
+        "adminUid": {
+          "type": "string",
+          "description": "Family admin UID."
+        },
+        "allowedUids": {
+          "type": "array",
+          "description": "Denormalized list of Auth UIDs permitted to read/access this document."
+        },
+        "fileType": {
+          "type": "string",
+          "enum": ["pdf", "jpg", "png", "sample"],
+          "description": "Document file format."
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Original or normalized file name."
+        },
+        "fileSizeBytes": {
+          "type": "integer",
+          "description": "Size of the encrypted/original document in bytes."
+        },
+        "storagePath": {
+          "type": "string",
+          "description": "Optional Firebase Cloud Storage object path."
+        },
+        "isEncrypted": {
+          "type": "boolean",
+          "description": "Whether the local/cloud payload is AES-256-GCM encrypted."
+        },
+        "isBackedUp": {
+          "type": "boolean",
+          "description": "Whether the document payload is backed up to cloud storage."
+        },
+        "isSample": {
+          "type": "boolean",
+          "description": "Whether this entry is a synthetic sample document for testing."
+        },
+        "documentNumberMasked": {
+          "type": "string",
+          "description": "Optional masked reference number (e.g., DEMO-0001)."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes about the document."
+        },
+        "issueDateMillis": {
+          "type": "integer",
+          "description": "Issue date in epoch milliseconds, or 0 if not set."
+        },
+        "expiryDateMillis": {
+          "type": "integer",
+          "description": "Expiry date in epoch milliseconds, or 0 if not set."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when document record was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when document record was updated."
+        }
+      },
+      "required": ["familyId", "title", "category", "memberId", "memberName", "uploadedByUid", "adminUid", "allowedUids", "fileType", "fileName", "fileSizeBytes", "isEncrypted", "isBackedUp", "isSample", "issueDateMillis", "expiryDateMillis", "createdAt", "updatedAt"]
+    },
+    "FamilyVaultSecret": {
+      "title": "FamilyVaultSecret",
+      "description": "Family-scoped 256-bit AES vault encryption key restricted strictly to authenticated family members.",
+      "type": "object",
+      "properties": {
+        "familyId": {
+          "type": "string",
+          "description": "Parent family ID."
+        },
+        "adminUid": {
+          "type": "string",
+          "description": "Family admin UID."
+        },
+        "keyBase64": {
+          "type": "string",
+          "description": "Base64-encoded 256-bit random AES-GCM key material."
+        },
+        "keyVersion": {
+          "type": "integer",
+          "description": "Key version number."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when vault key was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when vault key was updated."
+        }
+      },
+      "required": ["familyId", "adminUid", "keyBase64", "keyVersion", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-only user profile and family vault pointer."
+    },
+    "/families/{familyId}": {
+      "schema": { "$ref": "#/entities/FamilyAccount" },
+      "description": "Family vault metadata isolated by memberUids and adminUid."
+    },
+    "/family_invites/{familyCode}": {
+      "schema": { "$ref": "#/entities/FamilyInvite" },
+      "description": "Single-get invite resolution mapping Family ID code to familyId."
+    },
+    "/families/{familyId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/FamilyMember" },
+      "description": "Family member profiles scoped to the family."
+    },
+    "/families/{familyId}/documents/{docId}": {
+      "schema": { "$ref": "#/entities/FamilyDocument" },
+      "description": "Family document metadata scoped to permitted UIDs (allowedUids) and family isolation."
+    },
+    "/families/{familyId}/secrets/{secretId}": {
+      "schema": { "$ref": "#/entities/FamilyVaultSecret" },
+      "description": "Member-only family AES-256 vault encryption key (docId = vault_key)."
+    }
+  }
+}

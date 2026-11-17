@@ -1,0 +1,46 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Default deny across the entire bucket
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function familyDoc(familyId) {
+      return firestore.get(/databases/ai-studio-android-myfamily-31bcdd9d-0dee-46fe-8aa9-4f2cc590f319/documents/families/$(familyId));
+    }
+
+    function docMeta(familyId, docId) {
+      return firestore.get(/databases/ai-studio-android-myfamily-31bcdd9d-0dee-46fe-8aa9-4f2cc590f319/documents/families/$(familyId)/documents/$(docId));
+    }
+
+    // Encrypted family documents stored as /families/{familyId}/documents/{docId}.enc
+    match /families/{familyId}/documents/{fileName} {
+      allow read: if isSignedIn() &&
+        fileName.matches('^[a-zA-Z0-9_\\-]+\\.enc$') &&
+        request.auth.uid in familyDoc(familyId).data.memberUids &&
+        (
+          familyDoc(familyId).data.adminUid == request.auth.uid ||
+          request.auth.uid in docMeta(familyId, fileName.replace('\\.enc$', '')).data.allowedUids ||
+          docMeta(familyId, fileName.replace('\\.enc$', '')).data.uploadedByUid == request.auth.uid
+        );
+
+      allow create, update: if isSignedIn() &&
+        fileName.matches('^[a-zA-Z0-9_\\-]+\\.enc$') &&
+        request.auth.uid in familyDoc(familyId).data.memberUids &&
+        request.resource.size > 0 &&
+        request.resource.size <= 25 * 1024 * 1024;
+
+      allow delete: if isSignedIn() &&
+        fileName.matches('^[a-zA-Z0-9_\\-]+\\.enc$') &&
+        (
+          familyDoc(familyId).data.adminUid == request.auth.uid ||
+          docMeta(familyId, fileName.replace('\\.enc$', '')).data.uploadedByUid == request.auth.uid
+        );
+    }
+  }
+}

@@ -1,0 +1,375 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 4.1: Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reusable Hardened Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidStringList(listVal, maxLen) {
+      return listVal is list &&
+             listVal.size() >= 1 &&
+             listVal.size() <= maxLen &&
+             listVal[0] is string;
+    }
+
+    function familyDoc(familyId) {
+      return get(/databases/$(database)/documents/families/$(familyId));
+    }
+
+    function familyExists(familyId) {
+      return exists(/databases/$(database)/documents/families/$(familyId));
+    }
+
+    function isFamilyMember(familyId) {
+      return isSignedIn() &&
+             familyExists(familyId) &&
+             request.auth.uid in familyDoc(familyId).data.memberUids;
+    }
+
+    function isFamilyAdmin(familyId) {
+      return isSignedIn() &&
+             familyExists(familyId) &&
+             familyDoc(familyId).data.adminUid == request.auth.uid;
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+             data.email is string && data.email.size() <= 160 &&
+             (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 500)) &&
+             (!('username' in data) || (data.username is string && data.username.size() <= 40)) &&
+             (!('authMethod' in data) || data.authMethod in ['google', 'family_username', 'member_username']) &&
+             data.familyId is string && data.familyId.size() <= 128 &&
+             data.preferredLanguage in ['en', 'kn'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidFamilyAccount(data) {
+      return data.familyId is string && isValidId(data.familyId) &&
+             data.familyName is string && data.familyName.size() >= 2 && data.familyName.size() <= 80 &&
+             data.familyCode is string && isValidId(data.familyCode) && data.familyCode.size() >= 6 && data.familyCode.size() <= 24 &&
+             data.adminUid is string && data.adminUid.size() >= 1 && data.adminUid.size() <= 128 &&
+             isValidStringList(data.memberUids, 25) &&
+             data.adminUid in data.memberUids &&
+             data.totalDocuments is int && data.totalDocuments >= 0 && data.totalDocuments <= 100000 &&
+             (!('lastBackupAt' in data) || (data.lastBackupAt is timestamp && data.lastBackupAt <= request.time)) &&
+             (!('familyUsername' in data) || (data.familyUsername is string && data.familyUsername.size() <= 40)) &&
+             (!('hasFamilyPassword' in data) || data.hasFamilyPassword is bool) &&
+             data.autoBackupEnabled is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidFamilyInvite(data) {
+      return data.familyCode is string && isValidId(data.familyCode) && data.familyCode.size() >= 6 && data.familyCode.size() <= 24 &&
+             data.familyId is string && isValidId(data.familyId) &&
+             data.familyName is string && data.familyName.size() >= 2 && data.familyName.size() <= 80 &&
+             data.adminUid is string && data.adminUid.size() >= 1 && data.adminUid.size() <= 128 &&
+             data.active is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidFamilyMember(data) {
+      return data.familyId is string && isValidId(data.familyId) &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.relation is string && data.relation.size() >= 1 && data.relation.size() <= 40 &&
+             data.role in ['admin', 'member'] &&
+             data.linkedUserId is string && data.linkedUserId.size() <= 128 &&
+             data.email is string && data.email.size() <= 160 &&
+             (!('photoBase64' in data) || (data.photoBase64 is string && data.photoBase64.size() <= 120000)) &&
+             (!('memberUsername' in data) || (data.memberUsername is string && data.memberUsername.size() <= 40)) &&
+             (!('loginEnabled' in data) || data.loginEnabled is bool) &&
+             isValidStringList(data.memberUids, 25) &&
+             data.adminUid is string && data.adminUid.size() >= 1 && data.adminUid.size() <= 128 &&
+             data.adminUid in data.memberUids &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidFamilyDocument(data) {
+      return data.familyId is string && isValidId(data.familyId) &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.category is string && data.category.size() >= 2 && data.category.size() <= 60 &&
+             data.memberId is string && isValidId(data.memberId) &&
+             data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 80 &&
+             data.uploadedByUid is string && data.uploadedByUid.size() >= 1 && data.uploadedByUid.size() <= 128 &&
+             data.adminUid is string && data.adminUid.size() >= 1 && data.adminUid.size() <= 128 &&
+             isValidStringList(data.allowedUids, 25) &&
+             data.adminUid in data.allowedUids &&
+             data.fileType in ['pdf', 'jpg', 'png', 'sample'] &&
+             data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 160 &&
+             data.fileSizeBytes is int && data.fileSizeBytes >= 0 && data.fileSizeBytes <= 104857600 &&
+             (!('storagePath' in data) || (data.storagePath is string && data.storagePath.size() <= 300)) &&
+             data.isEncrypted is bool &&
+             data.isBackedUp is bool &&
+             data.isSample is bool &&
+             (!('documentNumberMasked' in data) || (data.documentNumberMasked is string && data.documentNumberMasked.size() <= 40)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 500)) &&
+             data.issueDateMillis is int && data.issueDateMillis >= 0 &&
+             data.expiryDateMillis is int && data.expiryDateMillis >= 0 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidVaultKeySecret(data) {
+      return data.familyId is string && isValidId(data.familyId) &&
+             data.adminUid is string && data.adminUid.size() >= 1 && data.adminUid.size() <= 128 &&
+             data.keyBase64 is string && data.keyBase64.size() >= 32 && data.keyBase64.size() <= 128 &&
+             data.keyVersion is int && data.keyVersion >= 1 && data.keyVersion <= 1000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // --- Server-Only Auth Collections (NEVER readable/writable by any client SDK) ---
+    match /family_credentials/{credId} {
+      allow read, write: if false;
+    }
+
+    match /family_auth_locks/{lockId} {
+      allow read, write: if false;
+    }
+
+    // --- Collection 1: /users/{userId} (Owner-only PII isolation) ---
+    match /users/{userId} {
+      allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'displayName', 'email', 'familyId', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'email', 'photoUrl', 'username', 'authMethod', 'familyId', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoUrl', 'familyId', 'preferredLanguage', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    // --- Collection 2: /families/{familyId} (Strict Family Isolation) ---
+    match /families/{familyId} {
+      allow get: if isSignedIn() &&
+                    isValidId(familyId) &&
+                    resource != null &&
+                    (request.auth.uid in existing().memberUids || existing().adminUid == request.auth.uid);
+
+      allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+      allow create: if isSignedIn() &&
+                       isValidId(familyId) &&
+                       incoming().familyId == familyId &&
+                       incoming().adminUid == request.auth.uid &&
+                       request.auth.uid in incoming().memberUids &&
+                       incoming().keys().hasAll(['familyId', 'familyName', 'familyCode', 'adminUid', 'memberUids', 'totalDocuments', 'autoBackupEnabled', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['familyId', 'familyName', 'familyCode', 'adminUid', 'memberUids', 'totalDocuments', 'lastBackupAt', 'autoBackupEnabled', 'familyUsername', 'hasFamilyPassword', 'createdAt', 'updatedAt']) &&
+                       isValidFamilyAccount(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(familyId) &&
+                       isValidFamilyAccount(incoming()) &&
+                       incoming().familyId == existing().familyId &&
+                       incoming().adminUid == existing().adminUid &&
+                       incoming().createdAt == existing().createdAt && (
+                         // Action 1: Family Admin full management update
+                         (existing().adminUid == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['familyName', 'familyCode', 'memberUids', 'totalDocuments', 'lastBackupAt', 'autoBackupEnabled', 'updatedAt'])) ||
+                         // Action 2: Family Member updates doc counter / backup timestamp
+                         (request.auth.uid in existing().memberUids &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['totalDocuments', 'lastBackupAt', 'updatedAt'])) ||
+                         // Action 3: Authenticated user joins via exact valid invite code
+                         (!(request.auth.uid in existing().memberUids) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'updatedAt']) &&
+                          incoming().memberUids.hasAll(existing().memberUids) &&
+                          incoming().memberUids.size() == existing().memberUids.size() + 1 &&
+                          request.auth.uid in incoming().memberUids &&
+                          exists(/databases/$(database)/documents/family_invites/$(existing().familyCode)) &&
+                          get(/databases/$(database)/documents/family_invites/$(existing().familyCode)).data.active == true)
+                       );
+
+      allow delete: if isSignedIn() && isValidId(familyId) && existing().adminUid == request.auth.uid;
+
+      // --- Server-only per-device login mappings ---
+      match /device_logins/{deviceId} {
+        allow read, write: if false;
+      }
+
+      // --- Member-only Family Encryption Secret Key ---
+      match /secrets/{secretId} {
+        allow get: if isSignedIn() &&
+                      isValidId(familyId) &&
+                      secretId == 'vault_key' &&
+                      isFamilyMember(familyId);
+
+        allow list, delete: if false;
+
+        allow create: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         secretId == 'vault_key' &&
+                         incoming().familyId == familyId &&
+                         incoming().keys().hasAll(['familyId', 'adminUid', 'keyBase64', 'keyVersion', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['familyId', 'adminUid', 'keyBase64', 'keyVersion', 'createdAt', 'updatedAt']) &&
+                         isValidVaultKeySecret(incoming()) &&
+                         isFamilyAdmin(familyId) &&
+                         incoming().adminUid == familyDoc(familyId).data.adminUid;
+
+        allow update: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         secretId == 'vault_key' &&
+                         isValidVaultKeySecret(incoming()) &&
+                         incoming().familyId == existing().familyId &&
+                         incoming().adminUid == existing().adminUid &&
+                         incoming().createdAt == existing().createdAt &&
+                         isFamilyAdmin(familyId) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['keyBase64', 'keyVersion', 'updatedAt']);
+      }
+
+      // --- Collection 4: /families/{familyId}/members/{memberId} ---
+      match /members/{memberId} {
+        allow get: if isSignedIn() &&
+                      isValidId(familyId) &&
+                      isValidId(memberId) &&
+                      ((resource == null && isFamilyMember(familyId)) ||
+                       (resource != null && (request.auth.uid in existing().memberUids || existing().adminUid == request.auth.uid)));
+
+        allow list: if isSignedIn() &&
+                       (request.auth.uid in resource.data.memberUids || resource.data.adminUid == request.auth.uid);
+
+        allow create: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         isValidId(memberId) &&
+                         incoming().familyId == familyId &&
+                         incoming().keys().hasAll(['familyId', 'name', 'relation', 'role', 'linkedUserId', 'email', 'memberUids', 'adminUid', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['familyId', 'name', 'relation', 'role', 'linkedUserId', 'email', 'photoBase64', 'memberUsername', 'loginEnabled', 'memberUids', 'adminUid', 'createdAt', 'updatedAt']) &&
+                         isValidFamilyMember(incoming()) &&
+                         familyExists(familyId) &&
+                         incoming().adminUid == familyDoc(familyId).data.adminUid &&
+                         (isFamilyAdmin(familyId) ||
+                          (isFamilyMember(familyId) && incoming().linkedUserId == request.auth.uid && incoming().role == 'member'));
+
+        allow update: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         isValidId(memberId) &&
+                         isValidFamilyMember(incoming()) &&
+                         incoming().familyId == existing().familyId &&
+                         incoming().adminUid == existing().adminUid &&
+                         incoming().createdAt == existing().createdAt && (
+                           // Action 1: Family Admin manages member profile, role, or synced memberUids
+                           (existing().adminUid == request.auth.uid &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'relation', 'role', 'linkedUserId', 'email', 'photoBase64', 'memberUids', 'updatedAt'])) ||
+                           // Action 2: Linked user updates their own profile photo/name/relation (role immutable)
+                           (existing().linkedUserId == request.auth.uid &&
+                            incoming().role == existing().role &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'relation', 'photoBase64', 'updatedAt']))
+                         );
+
+        allow delete: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         isValidId(memberId) &&
+                         existing().adminUid == request.auth.uid;
+      }
+
+      // --- Collection 5: /families/{familyId}/documents/{docId} ---
+      match /documents/{docId} {
+        allow get: if isSignedIn() &&
+                      isValidId(familyId) &&
+                      isValidId(docId) &&
+                      ((resource == null && isFamilyMember(familyId)) ||
+                       (resource != null && (request.auth.uid in existing().allowedUids ||
+                                             existing().adminUid == request.auth.uid ||
+                                             existing().uploadedByUid == request.auth.uid)));
+
+        allow list: if isSignedIn() &&
+                       (request.auth.uid in resource.data.allowedUids || resource.data.adminUid == request.auth.uid);
+
+        allow create: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         isValidId(docId) &&
+                         incoming().familyId == familyId &&
+                         incoming().uploadedByUid == request.auth.uid &&
+                         request.auth.uid in incoming().allowedUids &&
+                         incoming().keys().hasAll(['familyId', 'title', 'category', 'memberId', 'memberName', 'uploadedByUid', 'adminUid', 'allowedUids', 'fileType', 'fileName', 'fileSizeBytes', 'isEncrypted', 'isBackedUp', 'isSample', 'issueDateMillis', 'expiryDateMillis', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['familyId', 'title', 'category', 'memberId', 'memberName', 'uploadedByUid', 'adminUid', 'allowedUids', 'fileType', 'fileName', 'fileSizeBytes', 'storagePath', 'isEncrypted', 'isBackedUp', 'isSample', 'documentNumberMasked', 'notes', 'issueDateMillis', 'expiryDateMillis', 'createdAt', 'updatedAt']) &&
+                         isValidFamilyDocument(incoming()) &&
+                         familyExists(familyId) &&
+                         incoming().adminUid == familyDoc(familyId).data.adminUid &&
+                         request.auth.uid in familyDoc(familyId).data.memberUids;
+
+        allow update: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         isValidId(docId) &&
+                         isValidFamilyDocument(incoming()) &&
+                         incoming().familyId == existing().familyId &&
+                         incoming().uploadedByUid == existing().uploadedByUid &&
+                         incoming().adminUid == existing().adminUid &&
+                         incoming().createdAt == existing().createdAt && (
+                           // Action 1: Family Admin can update document metadata, permissions (allowedUids), and backup state
+                           (existing().adminUid == request.auth.uid &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'memberId', 'memberName', 'allowedUids', 'storagePath', 'isBackedUp', 'documentNumberMasked', 'notes', 'issueDateMillis', 'expiryDateMillis', 'updatedAt'])) ||
+                           // Action 2: Permitted member can rename or update metadata/backup status without altering permissions
+                           (request.auth.uid in existing().allowedUids &&
+                            incoming().allowedUids == existing().allowedUids &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'storagePath', 'isBackedUp', 'documentNumberMasked', 'notes', 'issueDateMillis', 'expiryDateMillis', 'updatedAt']))
+                         );
+
+        allow delete: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         isValidId(docId) &&
+                         (existing().adminUid == request.auth.uid || existing().uploadedByUid == request.auth.uid);
+      }
+    }
+
+    // --- Collection 3: /family_invites/{familyCode} ---
+    match /family_invites/{familyCode} {
+      allow get: if isSignedIn() && isValidId(familyCode);
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       isValidId(familyCode) &&
+                       incoming().familyCode == familyCode &&
+                       incoming().adminUid == request.auth.uid &&
+                       incoming().keys().hasAll(['familyCode', 'familyId', 'familyName', 'adminUid', 'active', 'createdAt']) &&
+                       incoming().keys().hasOnly(['familyCode', 'familyId', 'familyName', 'adminUid', 'active', 'createdAt']) &&
+                       isValidFamilyInvite(incoming()) &&
+                       familyExists(incoming().familyId) &&
+                       familyDoc(incoming().familyId).data.adminUid == request.auth.uid;
+
+      allow update: if isSignedIn() &&
+                       isValidId(familyCode) &&
+                       isValidFamilyInvite(incoming()) &&
+                       existing().adminUid == request.auth.uid &&
+                       incoming().adminUid == existing().adminUid &&
+                       incoming().familyId == existing().familyId &&
+                       incoming().familyCode == existing().familyCode &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['familyName', 'active']);
+
+      allow delete: if isSignedIn() && isValidId(familyCode) && existing().adminUid == request.auth.uid;
+    }
+  }
+}
