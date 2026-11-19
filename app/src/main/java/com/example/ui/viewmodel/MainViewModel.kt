@@ -12,7 +12,6 @@ import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.firebase.FamilyAuthRepository
 import com.example.data.firebase.FamilyVaultRepository
 import com.example.data.sample.SampleDocumentFactory
 import com.example.data.security.DocumentCryptoManager
@@ -21,7 +20,6 @@ import com.example.data.security.SecuritySettings
 import com.example.data.security.ThemeMode
 import com.example.domain.model.BackupStatusInfo
 import com.example.domain.model.FamilyAccount
-import com.example.domain.model.FamilyCredentialsOverview
 import com.example.domain.model.FamilyDocument
 import com.example.domain.model.FamilyMember
 import com.example.domain.model.SyncState
@@ -58,8 +56,7 @@ class MainViewModel(
     private val cryptoManager: DocumentCryptoManager,
     private val securityPreferences: SecurityPreferences,
     private val appContext: Context,
-    val currentUserId: String,
-    private val familyAuthRepository: FamilyAuthRepository = FamilyAuthRepository()
+    val currentUserId: String
 ) : ViewModel() {
 
     private val _isActionBusy = MutableStateFlow(false)
@@ -67,9 +64,6 @@ class MainViewModel(
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
-
-    private val _credentialsOverview = MutableStateFlow<FamilyCredentialsOverview?>(null)
-    val credentialsOverview: StateFlow<FamilyCredentialsOverview?> = _credentialsOverview.asStateFlow()
 
     private val _isSyncing = MutableStateFlow(false)
     private val syncMutex = Mutex()
@@ -218,15 +212,12 @@ class MainViewModel(
                 }
         }
 
-        // Sync shared 256-bit family encryption key & Admin credential overview when online
+        // Sync shared 256-bit family encryption key when online
         viewModelScope.launch {
             combine(isOnline, familyAccount) { online, fam -> online to fam }
                 .collect { (online, fam) ->
                     if (online && fam != null) {
                         runCatching { repository.ensureAndSyncFamilyVaultKey(fam, cryptoManager) }
-                        if (fam.adminUid == currentUserId) {
-                            loadFamilyCredentialsOverviewInternal(fam.familyId, silent = true)
-                        }
                     }
                 }
         }
@@ -496,140 +487,6 @@ class MainViewModel(
             _isActionBusy.value = true
             repository.deleteMember(family.familyId, memberId)
                 .onFailure { _statusMessage.value = it.localizedMessage }
-            _isActionBusy.value = false
-        }
-    }
-
-    fun loadFamilyCredentialsOverview() {
-        val family = familyAccount.value ?: return
-        if (family.adminUid != currentUserId) return
-        viewModelScope.launch {
-            loadFamilyCredentialsOverviewInternal(family.familyId, silent = false)
-        }
-    }
-
-    private suspend fun loadFamilyCredentialsOverviewInternal(familyId: String, silent: Boolean) {
-        familyAuthRepository.listFamilyCredentials(familyId)
-            .onSuccess { overview ->
-                _credentialsOverview.value = overview
-            }
-            .onFailure { err ->
-                if (!silent) {
-                    _statusMessage.value = err.localizedMessage ?: "Unable to load credential settings"
-                }
-            }
-    }
-
-    fun setupFamilyCredentials(
-        username: String,
-        password: String,
-        successMessage: String
-    ) {
-        val family = familyAccount.value ?: return
-        viewModelScope.launch {
-            _isActionBusy.value = true
-            familyAuthRepository.upsertFamilyCredentials(
-                familyId = family.familyId,
-                username = username,
-                password = password
-            ).onSuccess {
-                _statusMessage.value = successMessage
-                loadFamilyCredentialsOverviewInternal(family.familyId, silent = true)
-            }.onFailure { err ->
-                _statusMessage.value = err.localizedMessage ?: "Failed to save Family Username"
-            }
-            _isActionBusy.value = false
-        }
-    }
-
-    fun resetFamilyPassword(
-        newPassword: String,
-        successMessage: String
-    ) {
-        val family = familyAccount.value ?: return
-        viewModelScope.launch {
-            _isActionBusy.value = true
-            familyAuthRepository.resetFamilyPassword(
-                familyId = family.familyId,
-                newPassword = newPassword
-            ).onSuccess {
-                _statusMessage.value = successMessage
-                loadFamilyCredentialsOverviewInternal(family.familyId, silent = true)
-            }.onFailure { err ->
-                _statusMessage.value = err.localizedMessage ?: "Failed to reset Family Password"
-            }
-            _isActionBusy.value = false
-        }
-    }
-
-    fun createMemberCredential(
-        memberName: String,
-        relation: String,
-        memberUsername: String,
-        password: String,
-        existingMemberId: String? = null,
-        successMessage: String
-    ) {
-        val family = familyAccount.value ?: return
-        viewModelScope.launch {
-            _isActionBusy.value = true
-            familyAuthRepository.createMemberCredential(
-                familyId = family.familyId,
-                memberName = memberName,
-                relation = relation,
-                memberUsername = memberUsername,
-                password = password,
-                existingMemberId = existingMemberId
-            ).onSuccess {
-                _statusMessage.value = successMessage
-                loadFamilyCredentialsOverviewInternal(family.familyId, silent = true)
-            }.onFailure { err ->
-                _statusMessage.value = err.localizedMessage ?: "Failed to create member login"
-            }
-            _isActionBusy.value = false
-        }
-    }
-
-    fun resetMemberPassword(
-        memberUsername: String,
-        newPassword: String,
-        successMessage: String
-    ) {
-        val family = familyAccount.value ?: return
-        viewModelScope.launch {
-            _isActionBusy.value = true
-            familyAuthRepository.resetMemberPassword(
-                familyId = family.familyId,
-                memberUsername = memberUsername,
-                newPassword = newPassword
-            ).onSuccess {
-                _statusMessage.value = successMessage
-                loadFamilyCredentialsOverviewInternal(family.familyId, silent = true)
-            }.onFailure { err ->
-                _statusMessage.value = err.localizedMessage ?: "Failed to reset member password"
-            }
-            _isActionBusy.value = false
-        }
-    }
-
-    fun revokeMemberAccess(
-        memberUsername: String?,
-        memberUid: String?,
-        successMessage: String
-    ) {
-        val family = familyAccount.value ?: return
-        viewModelScope.launch {
-            _isActionBusy.value = true
-            familyAuthRepository.revokeMemberAccess(
-                familyId = family.familyId,
-                memberUsername = memberUsername,
-                memberUid = memberUid
-            ).onSuccess {
-                _statusMessage.value = successMessage
-                loadFamilyCredentialsOverviewInternal(family.familyId, silent = true)
-            }.onFailure { err ->
-                _statusMessage.value = err.localizedMessage ?: "Failed to revoke member access"
-            }
             _isActionBusy.value = false
         }
     }

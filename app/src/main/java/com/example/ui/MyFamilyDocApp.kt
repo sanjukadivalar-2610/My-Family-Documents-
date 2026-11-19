@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Backup
@@ -32,8 +31,6 @@ import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +51,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -68,11 +66,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.data.firebase.AccountAuthRepository
+import com.example.data.firebase.AccountDeletionRepository
+import com.example.data.firebase.AccountDeletionResult
+import com.example.data.firebase.AdminDeleteAction
 import com.example.data.firebase.FamilyVaultRepository
 import com.example.data.security.DocumentCryptoManager
 import com.example.data.security.SecurityPreferences
@@ -81,11 +84,16 @@ import com.example.domain.model.UiState
 import com.example.localization.LocalAppStrings
 import com.example.localization.stringsForLanguage
 import com.example.ui.auth.AuthScreen
+import com.example.ui.auth.CreatePasswordScreen
+import com.example.ui.auth.CredentialFetchResult
 import com.example.ui.auth.FamilyOnboardingScreen
 import com.example.ui.auth.PinLockScreen
 import com.example.ui.auth.PinMode
 import com.example.ui.auth.authStateFlow
+import com.example.ui.auth.obtainGoogleCredentialFromManager
 import com.example.ui.auth.signOutUser
+import com.example.ui.components.DeleteAccountDialogState
+import com.example.ui.components.DeleteAccountFlowDialogs
 import com.example.ui.screens.AdminPanelScreen
 import com.example.ui.screens.BackupScreen
 import com.example.ui.screens.CameraScannerScreen
@@ -95,13 +103,15 @@ import com.example.ui.screens.FamilyScreen
 import com.example.ui.screens.HomeDashboardScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.NavyPrimary
-import com.example.ui.theme.PureWhite
 import com.example.ui.theme.SkyAccent
 import com.example.ui.theme.SkySoft
 import com.example.ui.viewmodel.MainViewModel
 import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class VaultTab(
     val route: String,
@@ -123,6 +133,7 @@ fun MyFamilyDocApp(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
+    val accountAuthRepository = remember { AccountAuthRepository() }
     val currentUser by remember { Firebase.auth.authStateFlow() }
         .collectAsStateWithLifecycle(initialValue = Firebase.auth.currentUser)
 
@@ -130,23 +141,156 @@ fun MyFamilyDocApp(
         stringsForLanguage(securitySettings.languageCode)
     }
 
+    var providerRefreshCounter by remember(currentUser?.uid) { mutableIntStateOf(0) }
+    var hasPasswordLinked by remember(currentUser?.uid) {
+        mutableStateOf(accountAuthRepository.hasEmailPasswordProvider(currentUser))
+    }
+    var hasGoogleLinked by remember(currentUser?.uid) {
+        mutableStateOf(accountAuthRepository.hasGoogleProvider(currentUser))
+    }
+    var pendingLoginInfoMessage by remember { mutableStateOf<String?>(null) }
+    var deleteAccountDialogState by remember {
+        mutableStateOf<DeleteAccountDialogState>(DeleteAccountDialogState.Idle)
+    }
+
+    val deletionRepository = remember(context.applicationContext, credentialManager) {
+        val appCtx = context.applicationContext
+        AccountDeletionRepository(
+            db = FamilyVaultRepository.getConfiguredFirestore(appCtx),
+            auth = Firebase.auth,
+            storage = FamilyVaultRepository.createStorageSafely(),
+            accountAuthRepository = accountAuthRepository,
+            cryptoManager = DocumentCryptoManager(appCtx),
+            securityPreferences = securityPreferences,
+            appContext = appCtx,
+            signOutHandler = {
+                withContext(NonCancellable) {
+                    runCatching { credentialManager.clearCredentialState(ClearCredentialStateRequest()) }
+                    Firebase.auth.signOut()
+                }
+            }
+        )
+    }
+
+    fun launchAccountDeletion(
+        adminAction: AdminDeleteAction,
+        transferTargetUid: String?,
+        recentAuthVerified: Boolean
+    ) {
+        deleteAccountDialogState = DeleteAccountDialogState.DeletingInProgress
+        scope.launch {
+            when (
+                val res = deletionRepository.deleteAccount(
+                    adminAction = adminAction,
+                    transferTargetUid = transferTargetUid,
+                    recentAuthVerifiedInSession = recentAuthVerified
+                )
+            ) {
+                is AccountDeletionResult.Success -> {
+                    pendingLoginInfoMessage = appStrings.accountDeletedSuccessMessage
+                    deleteAccountDialogState = DeleteAccountDialogState.Idle
+                }
+
+                is AccountDeletionResult.RequiresReauthentication -> {
+                    deleteAccountDialogState = DeleteAccountDialogState.NeedsReauthentication(
+                        adminAction = adminAction,
+                        transferTargetUid = transferTargetUid,
+                        hasPasswordProvider = res.hasPasswordProvider,
+                        hasGoogleProvider = res.hasGoogleProvider,
+                        email = res.email,
+                        reason = res.reason
+                    )
+                }
+
+                is AccountDeletionResult.PartialFailure -> {
+                    deleteAccountDialogState = DeleteAccountDialogState.PartialFailure(
+                        adminAction = adminAction,
+                        transferTargetUid = transferTargetUid,
+                        completedSteps = res.completedSteps,
+                        pendingSteps = res.pendingSteps,
+                        errorMessage = res.errorMessage
+                    )
+                }
+
+                is AccountDeletionResult.Failed -> {
+                    deleteAccountDialogState = DeleteAccountDialogState.Failed(
+                        errorMessage = res.errorMessage
+                    )
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(currentUser?.uid, providerRefreshCounter) {
+        val activeUser = currentUser
+        if (activeUser != null) {
+            hasPasswordLinked = accountAuthRepository.refreshPasswordLinkedState()
+            hasGoogleLinked = accountAuthRepository.hasGoogleProvider(accountAuthRepository.currentUser() ?: activeUser)
+        }
+    }
+
     CompositionLocalProvider(LocalAppStrings provides appStrings) {
         val user = currentUser
-        if (user == null) {
+        if (user == null && deleteAccountDialogState == DeleteAccountDialogState.DeletingInProgress) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = NavyPrimary)
+            }
+        } else if (user == null) {
             AuthScreen(
                 languageCode = securitySettings.languageCode,
                 onSelectLanguage = { code ->
                     scope.launch { securityPreferences.setLanguage(code) }
                 },
-                onGetDeviceId = { securityPreferences.getOrCreateDeviceInstallationId() },
-                onAuthSuccess = {}
+                onAuthSuccess = {
+                    providerRefreshCounter++
+                },
+                initialInfoMessage = pendingLoginInfoMessage,
+                onConsumeInitialInfoMessage = { pendingLoginInfoMessage = null }
+            )
+        } else if (!hasPasswordLinked) {
+            CreatePasswordScreen(
+                user = user,
+                languageCode = securitySettings.languageCode,
+                onSelectLanguage = { code ->
+                    scope.launch { securityPreferences.setLanguage(code) }
+                },
+                onPasswordLinked = {
+                    hasPasswordLinked = true
+                    providerRefreshCounter++
+                },
+                onSignOut = {
+                    signOutUser(
+                        credentialManager = credentialManager,
+                        scope = scope
+                    )
+                },
+                accountAuthRepository = accountAuthRepository
             )
         } else {
             key(user.uid) {
                 AuthenticatedVaultShell(
+                    firebaseUser = user,
                     userId = user.uid,
                     fallbackDisplayName = user.displayName ?: "Member",
+                    hasGoogleLinked = hasGoogleLinked,
+                    hasEmailPasswordLinked = hasPasswordLinked,
+                    isDeletingAccount = deleteAccountDialogState != DeleteAccountDialogState.Idle,
+                    onProvidersUpdated = { providerRefreshCounter++ },
                     securityPreferences = securityPreferences,
+                    accountAuthRepository = accountAuthRepository,
+                    credentialManager = credentialManager,
+                    onRequestDeleteAccount = { adminAction, targetUid ->
+                        launchAccountDeletion(
+                            adminAction = adminAction,
+                            transferTargetUid = targetUid,
+                            recentAuthVerified = false
+                        )
+                    },
                     onSignOut = {
                         signOutUser(
                             credentialManager = credentialManager,
@@ -156,14 +300,99 @@ fun MyFamilyDocApp(
                 )
             }
         }
+
+        DeleteAccountFlowDialogs(
+            state = deleteAccountDialogState,
+            onVerifyPasswordAndRetry = { enteredPassword ->
+                val reauthState = deleteAccountDialogState as? DeleteAccountDialogState.NeedsReauthentication
+                    ?: return@DeleteAccountFlowDialogs
+                deleteAccountDialogState = reauthState.copy(isVerifying = true, errorMessage = null)
+                scope.launch {
+                    accountAuthRepository.reauthenticateWithPassword(enteredPassword)
+                        .onSuccess {
+                            launchAccountDeletion(
+                                adminAction = reauthState.adminAction,
+                                transferTargetUid = reauthState.transferTargetUid,
+                                recentAuthVerified = true
+                            )
+                        }
+                        .onFailure { err ->
+                            deleteAccountDialogState = reauthState.copy(
+                                isVerifying = false,
+                                errorMessage = err.localizedMessage ?: "Verification failed."
+                            )
+                        }
+                }
+            },
+            onVerifyGoogleAndRetry = {
+                val reauthState = deleteAccountDialogState as? DeleteAccountDialogState.NeedsReauthentication
+                    ?: return@DeleteAccountFlowDialogs
+                deleteAccountDialogState = reauthState.copy(isVerifying = true, errorMessage = null)
+                scope.launch {
+                    when (
+                        val fetch = obtainGoogleCredentialFromManager(
+                            context = context,
+                            credentialManager = credentialManager,
+                            forceAccountChooser = false
+                        )
+                    ) {
+                        is CredentialFetchResult.Cancelled -> {
+                            deleteAccountDialogState = reauthState.copy(isVerifying = false)
+                        }
+                        is CredentialFetchResult.Error -> {
+                            deleteAccountDialogState = reauthState.copy(
+                                isVerifying = false,
+                                errorMessage = fetch.message
+                            )
+                        }
+                        is CredentialFetchResult.Success -> {
+                            accountAuthRepository.reauthenticateCurrentUserWithGoogle(fetch.credential)
+                                .onSuccess {
+                                    launchAccountDeletion(
+                                        adminAction = reauthState.adminAction,
+                                        transferTargetUid = reauthState.transferTargetUid,
+                                        recentAuthVerified = true
+                                    )
+                                }
+                                .onFailure { err ->
+                                    deleteAccountDialogState = reauthState.copy(
+                                        isVerifying = false,
+                                        errorMessage = err.localizedMessage ?: "Google re-verification failed."
+                                    )
+                                }
+                        }
+                    }
+                }
+            },
+            onRetryPartialCleanup = {
+                val partialState = deleteAccountDialogState as? DeleteAccountDialogState.PartialFailure
+                    ?: return@DeleteAccountFlowDialogs
+                launchAccountDeletion(
+                    adminAction = partialState.adminAction,
+                    transferTargetUid = partialState.transferTargetUid,
+                    recentAuthVerified = false
+                )
+            },
+            onDismiss = {
+                deleteAccountDialogState = DeleteAccountDialogState.Idle
+            }
+        )
     }
 }
 
 @Composable
 private fun AuthenticatedVaultShell(
+    firebaseUser: FirebaseUser,
     userId: String,
     fallbackDisplayName: String,
+    hasGoogleLinked: Boolean,
+    hasEmailPasswordLinked: Boolean,
+    isDeletingAccount: Boolean,
+    onProvidersUpdated: () -> Unit,
     securityPreferences: SecurityPreferences,
+    accountAuthRepository: AccountAuthRepository,
+    credentialManager: CredentialManager,
+    onRequestDeleteAccount: (AdminDeleteAction, String?) -> Unit,
     onSignOut: () -> Unit
 ) {
     val context = LocalContext.current
@@ -197,9 +426,10 @@ private fun AuthenticatedVaultShell(
     val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsStateWithLifecycle()
     val isActionBusy by viewModel.isActionBusy.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
-    val credentialsOverview by viewModel.credentialsOverview.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val shellScope = rememberCoroutineScope()
+    var isAccountActionBusy by remember { mutableStateOf(false) }
 
     LaunchedEffect(statusMessage) {
         val msg = statusMessage ?: return@LaunchedEffect
@@ -366,8 +596,6 @@ private fun AuthenticatedVaultShell(
                 return
             }
 
-            val scope = rememberCoroutineScope()
-
             if (showAdminPanel && isAdmin) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     AdminPanelScreen(
@@ -375,8 +603,6 @@ private fun AuthenticatedVaultShell(
                         members = familyMembers,
                         documents = documents,
                         backupStatus = backupStatus,
-                        credentialsOverview = credentialsOverview,
-                        isActionBusy = isActionBusy,
                         onRenameFamily = viewModel::renameFamily,
                         onAddOrUpdateMember = viewModel::addOrUpdateMember,
                         onDeleteMember = viewModel::deleteMember,
@@ -384,37 +610,7 @@ private fun AuthenticatedVaultShell(
                             viewModel.updateDocumentPermissions(doc, allowed, strings.permissionsSaved)
                         },
                         onBackupNow = { viewModel.runManualBackup(strings.backupCompletedMsg) },
-                        onRefreshCredentials = viewModel::loadFamilyCredentialsOverview,
-                        onSetupFamilyCredentials = { username, password ->
-                            viewModel.setupFamilyCredentials(username, password, strings.familyUsernameSavedMsg)
-                        },
-                        onResetFamilyPassword = { newPassword ->
-                            viewModel.resetFamilyPassword(newPassword, strings.familyPasswordResetMsg)
-                        },
-                        onCreateMemberCredential = { name, relation, username, password ->
-                            viewModel.createMemberCredential(
-                                memberName = name,
-                                relation = relation,
-                                memberUsername = username,
-                                password = password,
-                                successMessage = strings.memberLoginCreatedMsg
-                            )
-                        },
-                        onResetMemberPassword = { memberUsername, newPassword ->
-                            viewModel.resetMemberPassword(
-                                memberUsername = memberUsername,
-                                newPassword = newPassword,
-                                successMessage = strings.memberPasswordResetMsg
-                            )
-                        },
-                        onRevokeMemberAccess = { memberUsername, memberUid ->
-                            viewModel.revokeMemberAccess(
-                                memberUsername = memberUsername,
-                                memberUid = memberUid,
-                                successMessage = strings.memberRevokedMsg
-                            )
-                        },
-                        onShowMessage = { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } },
+                        onShowMessage = { msg -> shellScope.launch { snackbarHostState.showSnackbar(msg) } },
                         onBack = { showAdminPanel = false }
                     )
                     SnackbarHost(
@@ -466,7 +662,7 @@ private fun AuthenticatedVaultShell(
                                     onOpenBackup = { currentTab = VaultTab.BACKUP },
                                     onOpenAdminPanel = { showAdminPanel = true },
                                     onOpenDocumentDetail = { doc -> selectedDocumentId = doc.id },
-                                    onShowMessage = { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                                    onShowMessage = { msg -> shellScope.launch { snackbarHostState.showSnackbar(msg) } }
                                 )
                             }
 
@@ -531,11 +727,75 @@ private fun AuthenticatedVaultShell(
                             }
 
                             VaultTab.SETTINGS -> {
+                                val resolvedEmail = firebaseUser.email?.takeIf { it.isNotBlank() }
+                                    ?: userProfile.email
                                 SettingsScreen(
                                     userProfile = userProfile,
                                     family = family,
                                     isAdmin = isAdmin,
+                                    familyMembers = familyMembers,
                                     securitySettings = settings,
+                                    userEmail = resolvedEmail,
+                                    firebaseUid = userId,
+                                    hasGoogleLinked = hasGoogleLinked,
+                                    hasEmailPasswordLinked = hasEmailPasswordLinked,
+                                    isAccountActionBusy = isAccountActionBusy || isDeletingAccount,
+                                    onLinkGoogleAccount = {
+                                        isAccountActionBusy = true
+                                        shellScope.launch {
+                                            when (
+                                                val fetch = obtainGoogleCredentialFromManager(
+                                                    context = context,
+                                                    credentialManager = credentialManager,
+                                                    forceAccountChooser = true
+                                                )
+                                            ) {
+                                                is CredentialFetchResult.Cancelled -> {
+                                                    isAccountActionBusy = false
+                                                }
+                                                is CredentialFetchResult.Error -> {
+                                                    isAccountActionBusy = false
+                                                    snackbarHostState.showSnackbar(fetch.message)
+                                                }
+                                                is CredentialFetchResult.Success -> {
+                                                    accountAuthRepository.linkGoogleCredentialToSignedInUser(
+                                                        googleCredential = fetch.credential,
+                                                        googleEmail = fetch.email
+                                                    ).onSuccess {
+                                                        isAccountActionBusy = false
+                                                        onProvidersUpdated()
+                                                        snackbarHostState.showSnackbar(strings.googleLinkedSuccessMsg)
+                                                    }.onFailure { err ->
+                                                        isAccountActionBusy = false
+                                                        snackbarHostState.showSnackbar(
+                                                            err.localizedMessage ?: "Unable to link Google account."
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onOpenCreatePassword = {
+                                        onProvidersUpdated()
+                                    },
+                                    onSendPasswordResetEmail = {
+                                        if (resolvedEmail.isNotBlank()) {
+                                            isAccountActionBusy = true
+                                            shellScope.launch {
+                                                accountAuthRepository.sendPasswordResetEmail(resolvedEmail)
+                                                    .onSuccess {
+                                                        isAccountActionBusy = false
+                                                        snackbarHostState.showSnackbar(strings.resetEmailSentMessage)
+                                                    }
+                                                    .onFailure { err ->
+                                                        isAccountActionBusy = false
+                                                        snackbarHostState.showSnackbar(
+                                                            err.localizedMessage ?: "Unable to send password reset email."
+                                                        )
+                                                    }
+                                            }
+                                        }
+                                    },
                                     onSelectLanguage = viewModel::setLanguage,
                                     onSelectThemeMode = viewModel::setThemeMode,
                                     onSetupOrChangePin = { showPinSetup = true },
@@ -545,7 +805,8 @@ private fun AuthenticatedVaultShell(
                                     onCheckExpiriesNow = viewModel::checkExpiriesAndNotifyNow,
                                     onOpenBackupCenter = { currentTab = VaultTab.BACKUP },
                                     onOpenAdminPanel = { showAdminPanel = true },
-                                    onLogout = onSignOut
+                                    onLogout = onSignOut,
+                                    onConfirmDeleteAccount = onRequestDeleteAccount
                                 )
                             }
                         }

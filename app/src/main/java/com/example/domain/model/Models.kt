@@ -12,8 +12,6 @@ data class UserProfile(
     val displayName: String = "",
     val email: String = "",
     val photoUrl: String? = null,
-    val username: String? = null,
-    val authMethod: String? = null,
     val familyId: String = "",
     val preferredLanguage: String = "en",
     val createdAt: Timestamp? = null,
@@ -24,8 +22,6 @@ data class UserProfile(
         "displayName" to displayName.ifBlank { "Family Member" },
         "email" to email,
         "photoUrl" to photoUrl,
-        "username" to username,
-        "authMethod" to authMethod,
         "familyId" to familyId,
         "preferredLanguage" to preferredLanguage,
         "createdAt" to FieldValue.serverTimestamp(),
@@ -44,8 +40,6 @@ data class FamilyAccount(
     val totalDocuments: Long = 0L,
     val lastBackupAt: Timestamp? = null,
     val autoBackupEnabled: Boolean = true,
-    val familyUsername: String? = null,
-    val hasFamilyPassword: Boolean = false,
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null
 )
@@ -71,8 +65,6 @@ data class FamilyMember(
     val linkedUserId: String = "",
     val email: String = "",
     val photoBase64: String? = null,
-    val memberUsername: String? = null,
-    val loginEnabled: Boolean = false,
     val memberUids: List<String> = emptyList(),
     val adminUid: String = "",
     val createdAt: Timestamp? = null,
@@ -125,33 +117,6 @@ data class FamilyDocument(
         private const val MILLIS_PER_DAY = 86_400_000L
     }
 }
-
-data class MemberCredentialSummary(
-    val username: String,
-    val memberId: String,
-    val memberName: String,
-    val relation: String,
-    val linkedUid: String,
-    val active: Boolean
-)
-
-data class FamilyCredentialsOverview(
-    val familyId: String,
-    val familyUsername: String,
-    val hasFamilyPassword: Boolean,
-    val memberAccounts: List<MemberCredentialSummary>
-)
-
-data class FamilyLoginResult(
-    val customToken: String,
-    val uid: String,
-    val familyId: String,
-    val familyName: String,
-    val displayName: String,
-    val username: String,
-    val authMethod: String,
-    val vaultKeyBase64: String
-)
 
 enum class ExpiryStatus {
     NO_EXPIRY,

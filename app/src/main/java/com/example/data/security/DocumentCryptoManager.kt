@@ -360,6 +360,16 @@ class DocumentCryptoManager(private val context: Context) {
         exportCacheDir.listFiles()?.forEach { it.delete() }
     }
 
+    fun clearAllLocalVaultData() {
+        synchronized(inMemoryFamilyKeys) {
+            inMemoryFamilyKeys.clear()
+        }
+        File(context.filesDir, "vault_encrypted").deleteRecursively()
+        File(context.filesDir, "vault_keys").deleteRecursively()
+        File(context.cacheDir, "exports").deleteRecursively()
+        File(context.cacheDir, "camera_scans").deleteRecursively()
+    }
+
     private fun getEncryptedFile(docId: String): File {
         val safeId = docId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         return File(encryptedVaultDir, "$safeId.enc")

@@ -118,6 +118,20 @@ class SecurityPreferences(private val context: Context) {
         context.vaultDataStore.edit { it[KEY_LAST_BACKUP_MILLIS] = millis }
     }
 
+    suspend fun clearAccountLocalData() {
+        context.vaultDataStore.edit { prefs ->
+            prefs.remove(KEY_PIN_ENABLED)
+            prefs.remove(KEY_PIN_HASH)
+            prefs.remove(KEY_PIN_SALT)
+            prefs.remove(KEY_BIOMETRIC_ENABLED)
+            prefs.remove(KEY_AUTO_BACKUP)
+            prefs.remove(KEY_BACKUP_INTERVAL_DAYS)
+            prefs.remove(KEY_EXPIRY_REMINDERS)
+            prefs.remove(KEY_LAST_BACKUP_MILLIS)
+            prefs.remove(KEY_DEVICE_INSTALLATION_ID)
+        }
+    }
+
     private companion object {
         val KEY_LANGUAGE = stringPreferencesKey("language_code")
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode")

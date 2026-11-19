@@ -182,4 +182,12 @@ object VaultWorkScheduler {
             request
         )
     }
+
+    fun cancelAll(context: Context) {
+        runCatching {
+            val workManager = WorkManager.getInstance(context)
+            workManager.cancelUniqueWork(AUTO_BACKUP_WORK)
+            workManager.cancelUniqueWork(PENDING_CLOUD_SYNC_WORK)
+        }
+    }
 }

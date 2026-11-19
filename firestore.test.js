@@ -265,34 +265,6 @@ test("Invite lookup blocks list scraping and allows exact get + self-join", asyn
   );
 });
 
-test("Server-private credential and rate-limit collections cannot be read or written by any client", async () => {
-  await testEnv.withSecurityRulesDisabled(async (context) => {
-    const db = context.firestore();
-    await db.collection("family_credentials").doc("sharma_family").set({
-      username: "sharma_family",
-      passwordSalt: "salt",
-      passwordHash: "hash",
-    });
-    await db.collection("family_auth_locks").doc("lock_1").set({
-      failedAttempts: 3,
-    });
-    await db.collection("families").doc("fam_1").collection("device_logins").doc("dev_1").set({
-      uid: MEMBER_UID,
-    });
-  });
-
-  const adminDb = testEnv.authenticatedContext(ADMIN_UID).firestore();
-  const memberDb = testEnv.authenticatedContext(MEMBER_UID).firestore();
-  const unauthDb = testEnv.unauthenticatedContext().firestore();
-
-  await assertFails(adminDb.collection("family_credentials").doc("sharma_family").get());
-  await assertFails(memberDb.collection("family_credentials").doc("sharma_family").get());
-  await assertFails(unauthDb.collection("family_credentials").doc("sharma_family").get());
-  await assertFails(adminDb.collection("family_credentials").doc("hacked").set({ username: "hacked" }));
-  await assertFails(adminDb.collection("family_auth_locks").doc("lock_1").get());
-  await assertFails(memberDb.collection("families").doc("fam_1").collection("device_logins").doc("dev_1").get());
-});
-
 test("Family vault encryption key secret is accessible only to authorized family members", async () => {
   await seedFamilyWithMemberAndDocs();
   const adminDb = testEnv.authenticatedContext(ADMIN_UID).firestore();
@@ -330,4 +302,226 @@ test("Family vault encryption key secret is accessible only to authorized family
     outsiderDb.collection("families").doc("fam_1").collection("secrets").doc("vault_key").get()
   );
 });
+
+test("Normal member can remove only self and own uploads, never admin or other members", async () => {
+  await seedFamilyWithMemberAndDocs();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    const now = new Date();
+    await db.collection("users").doc(ADMIN_UID).set({
+      userId: ADMIN_UID,
+      displayName: "Alice",
+      email: "alice@test.com",
+      familyId: "fam_1",
+      preferredLanguage: "en",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.collection("users").doc(MEMBER_UID).set({
+      userId: MEMBER_UID,
+      displayName: "Bob",
+      email: "bob@test.com",
+      familyId: "fam_1",
+      preferredLanguage: "en",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.collection("families").doc("fam_1").collection("members").doc("mem_bob").set({
+      familyId: "fam_1",
+      name: "Bob Sharma",
+      relation: "Spouse",
+      role: "member",
+      linkedUserId: MEMBER_UID,
+      email: "bob@test.com",
+      memberUids: [ADMIN_UID, MEMBER_UID],
+      adminUid: ADMIN_UID,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.collection("families").doc("fam_1").collection("documents").doc("doc_bob_own").set({
+      familyId: "fam_1",
+      title: "Bob Passport",
+      category: "Passport",
+      memberId: "mem_bob",
+      memberName: "Bob Sharma",
+      uploadedByUid: MEMBER_UID,
+      adminUid: ADMIN_UID,
+      allowedUids: [ADMIN_UID, MEMBER_UID],
+      fileType: "pdf",
+      fileName: "bob_passport.pdf",
+      fileSizeBytes: 2048,
+      isEncrypted: true,
+      isBackedUp: false,
+      isSample: false,
+      issueDateMillis: 1700000000000,
+      expiryDateMillis: 1900000000000,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+
+  const memberDb = testEnv.authenticatedContext(MEMBER_UID).firestore();
+  const now = new Date();
+
+  // Member CANNOT delete another member's profile, family doc, invite, or admin's member record
+  await assertFails(memberDb.collection("users").doc(ADMIN_UID).delete());
+  await assertFails(memberDb.collection("families").doc("fam_1").delete());
+  await assertFails(memberDb.collection("family_invites").doc("MFD-1020-AB").delete());
+  await assertFails(memberDb.collection("families").doc("fam_1").collection("members").doc("mem_admin").delete());
+  // Member CANNOT remove Admin from allowedUids
+  await assertFails(
+    memberDb.collection("families").doc("fam_1").collection("documents").doc("doc_shared").update({
+      allowedUids: [MEMBER_UID],
+      updatedAt: now,
+    })
+  );
+
+  // Member CAN delete own uploaded doc, remove self from shared doc allowedUids, delete own member doc, remove self from memberUids, delete own user profile
+  await assertSucceeds(memberDb.collection("families").doc("fam_1").collection("documents").doc("doc_bob_own").delete());
+  await assertSucceeds(
+    memberDb.collection("families").doc("fam_1").collection("documents").doc("doc_shared").update({
+      allowedUids: [ADMIN_UID],
+      updatedAt: now,
+    })
+  );
+  await assertSucceeds(memberDb.collection("families").doc("fam_1").collection("members").doc("mem_bob").delete());
+  await assertSucceeds(
+    memberDb.collection("families").doc("fam_1").update({
+      memberUids: [ADMIN_UID],
+      updatedAt: now,
+    })
+  );
+  await assertSucceeds(memberDb.collection("users").doc(MEMBER_UID).delete());
+});
+
+test("Admin can delete vault_key secret and entire family, without touching other members user profiles", async () => {
+  await seedFamilyWithMemberAndDocs();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID).firestore();
+  const now = new Date();
+
+  await assertSucceeds(
+    adminDb.collection("families").doc("fam_1").collection("secrets").doc("vault_key").set({
+      familyId: "fam_1",
+      adminUid: ADMIN_UID,
+      keyBase64: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+      keyVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  // Member cannot delete vault_key
+  const memberDb = testEnv.authenticatedContext(MEMBER_UID).firestore();
+  await assertFails(memberDb.collection("families").doc("fam_1").collection("secrets").doc("vault_key").delete());
+
+  // Admin deletes child docs -> vault_key -> invite -> family
+  await assertSucceeds(adminDb.collection("families").doc("fam_1").collection("documents").doc("doc_shared").delete());
+  await assertSucceeds(adminDb.collection("families").doc("fam_1").collection("documents").doc("doc_admin_only").delete());
+  await assertSucceeds(adminDb.collection("families").doc("fam_1").collection("members").doc("mem_admin").delete());
+  await assertSucceeds(adminDb.collection("families").doc("fam_1").collection("secrets").doc("vault_key").delete());
+  await assertSucceeds(adminDb.collection("family_invites").doc("MFD-1020-AB").delete());
+  await assertSucceeds(adminDb.collection("families").doc("fam_1").delete());
+});
+
+test("Admin can safely transfer ownership to an existing family member, and cannot transfer to an outsider", async () => {
+  await seedFamilyWithMemberAndDocs();
+  const now = new Date();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.collection("families").doc("fam_1").collection("secrets").doc("vault_key").set({
+      familyId: "fam_1",
+      adminUid: ADMIN_UID,
+      keyBase64: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+      keyVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.collection("families").doc("fam_1").collection("members").doc("mem_bob").set({
+      familyId: "fam_1",
+      name: "Bob Sharma",
+      relation: "Spouse",
+      role: "member",
+      linkedUserId: MEMBER_UID,
+      email: "bob@test.com",
+      memberUids: [ADMIN_UID, MEMBER_UID],
+      adminUid: ADMIN_UID,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(MEMBER_UID).firestore();
+
+  // Admin cannot transfer to outsider
+  await assertFails(
+    adminDb.collection("families").doc("fam_1").update({
+      adminUid: OUTSIDER_UID,
+      updatedAt: now,
+    })
+  );
+
+  // Transfer child docs + secret + invite BEFORE updating families/fam_1.adminUid
+  await assertSucceeds(
+    adminDb.collection("families").doc("fam_1").collection("secrets").doc("vault_key").update({
+      adminUid: MEMBER_UID,
+      updatedAt: now,
+    })
+  );
+  await assertSucceeds(
+    adminDb.collection("family_invites").doc("MFD-1020-AB").update({
+      adminUid: MEMBER_UID,
+    })
+  );
+  await assertSucceeds(
+    adminDb.collection("families").doc("fam_1").collection("members").doc("mem_bob").update({
+      adminUid: MEMBER_UID,
+      role: "admin",
+      memberUids: [MEMBER_UID],
+      updatedAt: now,
+    })
+  );
+  await assertSucceeds(
+    adminDb.collection("families").doc("fam_1").collection("members").doc("mem_admin").delete()
+  );
+  await assertSucceeds(
+    adminDb.collection("families").doc("fam_1").collection("documents").doc("doc_shared").update({
+      adminUid: MEMBER_UID,
+      allowedUids: [MEMBER_UID],
+      updatedAt: now,
+    })
+  );
+  await assertSucceeds(
+    adminDb.collection("families").doc("fam_1").collection("documents").doc("doc_admin_only").update({
+      adminUid: MEMBER_UID,
+      allowedUids: [MEMBER_UID],
+      updatedAt: now,
+    })
+  );
+  await assertSucceeds(
+    adminDb.collection("families").doc("fam_1").update({
+      adminUid: MEMBER_UID,
+      updatedAt: now,
+    })
+  );
+  // Outgoing admin now leaves memberUids cleanly as non-admin
+  await assertSucceeds(
+    adminDb.collection("families").doc("fam_1").update({
+      memberUids: [MEMBER_UID],
+      updatedAt: now,
+    })
+  );
+
+  // Bob is now the Admin and can read/manage documents
+  await assertSucceeds(
+    bobDb.collection("families").doc("fam_1").collection("documents").doc("doc_admin_only").get()
+  );
+  await assertSucceeds(
+    bobDb.collection("families").doc("fam_1").update({
+      familyName: "Bob Family Vault",
+      updatedAt: now,
+    })
+  );
+});
+
 

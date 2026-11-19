@@ -20,12 +20,6 @@ android {
     versionCode = 1
     versionName = "1.0"
 
-    buildConfigField(
-      "String",
-      "FAMILY_AUTH_FUNCTION_URL",
-      "\"https://us-central1-project-71ca2d4d-7b30-4952-b87.cloudfunctions.net/familyAuth\""
-    )
-
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 

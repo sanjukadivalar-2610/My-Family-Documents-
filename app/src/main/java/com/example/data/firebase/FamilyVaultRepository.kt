@@ -908,12 +908,12 @@ class FamilyVaultRepository(
         return "MFD-$digits-$suffix"
     }
 
-    private companion object {
+    internal companion object {
         const val WRITE_SERVER_ACK_TIMEOUT_MS = 4000L
         val configuredDatabases: MutableSet<FirebaseFirestore> =
             Collections.synchronizedSet(Collections.newSetFromMap(IdentityHashMap()))
 
-        fun getConfiguredFirestore(appContext: Context): FirebaseFirestore {
+        internal fun getConfiguredFirestore(appContext: Context): FirebaseFirestore {
             val dbId = appContext.getString(R.string.firestore_database_id)
             val firestore = FirebaseFirestore.getInstance(dbId)
             if (configuredDatabases.add(firestore)) {
@@ -930,7 +930,7 @@ class FamilyVaultRepository(
             return firestore
         }
 
-        fun createStorageSafely(): FirebaseStorage? =
+        internal fun createStorageSafely(): FirebaseStorage? =
             try {
                 FirebaseStorage.getInstance()
             } catch (_: Throwable) {

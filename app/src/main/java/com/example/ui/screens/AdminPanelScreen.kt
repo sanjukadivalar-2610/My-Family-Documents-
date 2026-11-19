@@ -62,10 +62,8 @@ import androidx.compose.ui.unit.dp
 import com.example.domain.model.BackupStatusInfo
 import com.example.domain.model.DocumentCategory
 import com.example.domain.model.FamilyAccount
-import com.example.domain.model.FamilyCredentialsOverview
 import com.example.domain.model.FamilyDocument
 import com.example.domain.model.FamilyMember
-import com.example.domain.model.MemberCredentialSummary
 import com.example.domain.model.SyncState
 import com.example.localization.LocalAppStrings
 import com.example.ui.components.MemberAvatar
@@ -83,8 +81,6 @@ fun AdminPanelScreen(
     members: List<FamilyMember>,
     documents: List<FamilyDocument>,
     backupStatus: BackupStatusInfo,
-    credentialsOverview: FamilyCredentialsOverview?,
-    isActionBusy: Boolean,
     onRenameFamily: (String) -> Unit,
     onAddOrUpdateMember: (
         existing: FamilyMember?,
@@ -97,12 +93,6 @@ fun AdminPanelScreen(
     onDeleteMember: (String) -> Unit,
     onUpdateDocumentPermissions: (FamilyDocument, List<String>) -> Unit,
     onBackupNow: () -> Unit,
-    onRefreshCredentials: () -> Unit,
-    onSetupFamilyCredentials: (username: String, password: String) -> Unit,
-    onResetFamilyPassword: (newPassword: String) -> Unit,
-    onCreateMemberCredential: (name: String, relation: String, username: String, password: String) -> Unit,
-    onResetMemberPassword: (memberUsername: String, newPassword: String) -> Unit,
-    onRevokeMemberAccess: (memberUsername: String?, memberUid: String?) -> Unit,
     onShowMessage: (String) -> Unit,
     onBack: () -> Unit
 ) {
@@ -115,12 +105,6 @@ fun AdminPanelScreen(
     var editingMember by remember { mutableStateOf<FamilyMember?>(null) }
     var showMemberDialog by remember { mutableStateOf(false) }
     var memberPendingDelete by remember { mutableStateOf<FamilyMember?>(null) }
-
-    var showSetupFamilyCredsDialog by remember { mutableStateOf(false) }
-    var showResetFamilyPasswordDialog by remember { mutableStateOf(false) }
-    var showCreateMemberCredDialog by remember { mutableStateOf(false) }
-    var memberCredPendingReset by remember { mutableStateOf<MemberCredentialSummary?>(null) }
-    var memberCredPendingRevoke by remember { mutableStateOf<MemberCredentialSummary?>(null) }
 
     val linkedMembers = remember(members) { members.filter { it.linkedUserId.isNotBlank() } }
 
@@ -229,30 +213,6 @@ fun AdminPanelScreen(
                         }
                     }
                 }
-            }
-
-            // Family Username & Password Setup Card
-            item {
-                FamilyCredentialsCard(
-                    family = family,
-                    credentialsOverview = credentialsOverview,
-                    isActionBusy = isActionBusy,
-                    onSetupClick = { showSetupFamilyCredsDialog = true },
-                    onResetPasswordClick = { showResetFamilyPasswordDialog = true },
-                    onCopiedUsername = { copiedLabel -> onShowMessage(copiedLabel) }
-                )
-            }
-
-            // Individual Member Logins & Invitations Card
-            item {
-                MemberLoginsCard(
-                    credentialsOverview = credentialsOverview,
-                    isActionBusy = isActionBusy,
-                    onRefresh = onRefreshCredentials,
-                    onCreateMemberLoginClick = { showCreateMemberCredDialog = true },
-                    onResetMemberPasswordClick = { acct -> memberCredPendingReset = acct },
-                    onRevokeMemberClick = { acct -> memberCredPendingRevoke = acct }
-                )
             }
 
             // Manage Family Members Section
@@ -535,74 +495,6 @@ fun AdminPanelScreen(
             },
             dismissButton = {
                 TextButton(onClick = { memberPendingDelete = null }) { Text(strings.cancel) }
-            }
-        )
-    }
-
-    if (showSetupFamilyCredsDialog) {
-        SetupFamilyCredentialsDialog(
-            initialUsername = credentialsOverview?.familyUsername?.takeIf { it.isNotBlank() }
-                ?: family.familyUsername.orEmpty(),
-            onDismiss = { showSetupFamilyCredsDialog = false },
-            onConfirm = { username, password ->
-                onSetupFamilyCredentials(username, password)
-                showSetupFamilyCredsDialog = false
-            }
-        )
-    }
-
-    if (showResetFamilyPasswordDialog) {
-        val label = "@${credentialsOverview?.familyUsername?.ifBlank { family.familyUsername.orEmpty() } ?: family.familyName}"
-        ResetCredentialPasswordDialog(
-            targetLabel = label,
-            onDismiss = { showResetFamilyPasswordDialog = false },
-            onConfirm = { newPwd ->
-                onResetFamilyPassword(newPwd)
-                showResetFamilyPasswordDialog = false
-            }
-        )
-    }
-
-    if (showCreateMemberCredDialog) {
-        CreateMemberCredentialDialog(
-            onDismiss = { showCreateMemberCredDialog = false },
-            onConfirm = { name, relation, username, password ->
-                onCreateMemberCredential(name, relation, username, password)
-                showCreateMemberCredDialog = false
-            }
-        )
-    }
-
-    memberCredPendingReset?.let { acct ->
-        ResetCredentialPasswordDialog(
-            targetLabel = "@${acct.username}",
-            onDismiss = { memberCredPendingReset = null },
-            onConfirm = { newPwd ->
-                onResetMemberPassword(acct.username, newPwd)
-                memberCredPendingReset = null
-            }
-        )
-    }
-
-    memberCredPendingRevoke?.let { acct ->
-        AlertDialog(
-            onDismissRequest = { memberCredPendingRevoke = null },
-            title = { Text(strings.revokeAccessConfirmTitle) },
-            text = { Text("${acct.memberName} (@${acct.username})\n\n${strings.revokeAccessConfirmBody}") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onRevokeMemberAccess(acct.username, acct.linkedUid.takeIf { it.isNotBlank() })
-                        memberCredPendingRevoke = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.testTag("confirm_revoke_member_button")
-                ) {
-                    Text(strings.revokeAccessShort)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { memberCredPendingRevoke = null }) { Text(strings.cancel) }
             }
         )
     }

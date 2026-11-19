@@ -26,25 +26,35 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockReset
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -65,9 +75,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.data.firebase.AdminDeleteAction
 import com.example.data.security.SecuritySettings
 import com.example.data.security.ThemeMode
 import com.example.domain.model.FamilyAccount
+import com.example.domain.model.FamilyMember
 import com.example.domain.model.UserProfile
 import com.example.localization.LocalAppStrings
 import com.example.ui.components.LanguageSwitcherPill
@@ -82,7 +94,16 @@ fun SettingsScreen(
     userProfile: UserProfile?,
     family: FamilyAccount?,
     isAdmin: Boolean,
+    familyMembers: List<FamilyMember> = emptyList(),
     securitySettings: SecuritySettings,
+    userEmail: String,
+    firebaseUid: String,
+    hasGoogleLinked: Boolean,
+    hasEmailPasswordLinked: Boolean,
+    isAccountActionBusy: Boolean = false,
+    onLinkGoogleAccount: () -> Unit,
+    onOpenCreatePassword: () -> Unit,
+    onSendPasswordResetEmail: () -> Unit,
     onSelectLanguage: (String) -> Unit,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onSetupOrChangePin: () -> Unit,
@@ -92,7 +113,8 @@ fun SettingsScreen(
     onCheckExpiriesNow: () -> Unit,
     onOpenBackupCenter: () -> Unit,
     onOpenAdminPanel: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onConfirmDeleteAccount: (AdminDeleteAction, String?) -> Unit = { _, _ -> }
 ) {
     val strings = LocalAppStrings.current
     val context = LocalContext.current
@@ -100,6 +122,8 @@ fun SettingsScreen(
     var showPrivacyDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showDeleteAccountDialog by remember { mutableStateOf(false) }
+    var showAdminConsequenceDialog by remember { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -124,7 +148,8 @@ fun SettingsScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .testTag("settings_lazy_column"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -166,14 +191,10 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
-                            val identitySubtitle = when {
-                                !userProfile?.username.isNullOrBlank() -> "@${userProfile?.username}"
-                                !userProfile?.email.isNullOrBlank() -> userProfile?.email.orEmpty()
-                                else -> ""
-                            }
-                            if (identitySubtitle.isNotEmpty()) {
+                            val displayedEmail = userEmail.ifBlank { userProfile?.email.orEmpty() }
+                            if (displayedEmail.isNotEmpty()) {
                                 Text(
-                                    text = identitySubtitle,
+                                    text = displayedEmail,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -192,6 +213,113 @@ fun SettingsScreen(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Unified Sign-In Methods & Account Linking Card
+        item {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().widthIn(max = 960.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = strings.signInMethodsTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = strings.signInMethodsSubtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            modifier = Modifier.testTag("settings_firebase_uid_badge")
+                        ) {
+                            Text(
+                                text = "${strings.firebaseUidPrefix} ${firebaseUid.take(12)}...",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+
+                        ProviderStatusRow(
+                            icon = Icons.Rounded.AccountCircle,
+                            label = strings.googleProviderLabel,
+                            isLinked = hasGoogleLinked,
+                            linkedText = strings.linkedBadge,
+                            notLinkedText = strings.notLinkedBadge
+                        )
+
+                        if (!hasGoogleLinked) {
+                            Button(
+                                onClick = onLinkGoogleAccount,
+                                enabled = !isAccountActionBusy,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary, contentColor = PureWhite),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("settings_link_google_button")
+                            ) {
+                                Icon(Icons.Rounded.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(strings.linkGoogleAccountButton, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        ProviderStatusRow(
+                            icon = Icons.Rounded.Key,
+                            label = strings.emailPasswordProviderLabel,
+                            isLinked = hasEmailPasswordLinked,
+                            linkedText = strings.linkedBadge,
+                            notLinkedText = strings.notLinkedBadge
+                        )
+
+                        if (!hasEmailPasswordLinked) {
+                            Button(
+                                onClick = onOpenCreatePassword,
+                                enabled = !isAccountActionBusy,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary, contentColor = PureWhite),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("settings_link_password_button")
+                            ) {
+                                Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(strings.linkPasswordButton, fontWeight = FontWeight.SemiBold)
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = onSendPasswordResetEmail,
+                                enabled = !isAccountActionBusy && userEmail.isNotBlank(),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("settings_reset_password_email_button")
+                            ) {
+                                Icon(Icons.Rounded.LockReset, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(strings.sendPasswordResetButton)
                             }
                         }
                     }
@@ -411,13 +539,6 @@ fun SettingsScreen(
                         if (isAdmin) {
                             HorizontalDivider()
                             SettingsLinkRow(
-                                icon = Icons.Rounded.Key,
-                                label = strings.familyCredentialsSettingsLink,
-                                tag = "settings_family_credentials_link",
-                                onClick = onOpenAdminPanel
-                            )
-                            HorizontalDivider()
-                            SettingsLinkRow(
                                 icon = Icons.Rounded.AdminPanelSettings,
                                 label = strings.adminPanelTitle,
                                 tag = "settings_admin_link",
@@ -459,22 +580,50 @@ fun SettingsScreen(
 
         item {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Button(
-                    onClick = { showLogoutDialog = true },
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    ),
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .widthIn(max = 960.dp)
-                        .height(50.dp)
-                        .testTag("settings_logout_button")
+                        .widthIn(max = 960.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(strings.logout, fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = { showLogoutDialog = true },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("settings_logout_button")
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(strings.logout, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = { showDeleteAccountDialog = true },
+                        enabled = !isAccountActionBusy,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("settings_delete_account_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.DeleteForever,
+                            contentDescription = strings.deleteAccountButton,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(strings.deleteAccountButton, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -525,6 +674,362 @@ fun SettingsScreen(
                 TextButton(onClick = { showLogoutDialog = false }) { Text(strings.cancel) }
             }
         )
+    }
+
+    if (showDeleteAccountDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAccountDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteForever,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text(
+                    text = strings.deleteAccountDialogTitle,
+                    modifier = Modifier.testTag("delete_account_dialog_title")
+                )
+            },
+            text = {
+                Text(
+                    text = strings.deleteAccountDialogMessage,
+                    modifier = Modifier.testTag("delete_account_dialog_message")
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteAccountDialog = false
+                        if (isAdmin && family != null) {
+                            showAdminConsequenceDialog = true
+                        } else {
+                            onConfirmDeleteAccount(AdminDeleteAction.NONE, null)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    modifier = Modifier.testTag("delete_account_yes_button")
+                ) {
+                    Text(strings.deleteAccountYesDelete)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteAccountDialog = false },
+                    modifier = Modifier.testTag("delete_account_no_button")
+                ) {
+                    Text(strings.deleteAccountNoCancel)
+                }
+            }
+        )
+    }
+
+    if (showAdminConsequenceDialog && isAdmin && family != null) {
+        val transferableMembers = remember(familyMembers, firebaseUid) {
+            familyMembers.filter { it.linkedUserId.isNotBlank() && it.linkedUserId != firebaseUid }
+        }
+        var selectedAdminAction by remember(transferableMembers) {
+            mutableStateOf(
+                if (transferableMembers.isNotEmpty()) AdminDeleteAction.TRANSFER_OWNERSHIP
+                else AdminDeleteAction.DELETE_ENTIRE_FAMILY
+            )
+        }
+        var selectedNewOwnerUid by remember(transferableMembers) {
+            mutableStateOf(transferableMembers.firstOrNull()?.linkedUserId)
+        }
+        var extraFamilyDeleteConfirmed by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showAdminConsequenceDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text(
+                    text = strings.adminDeleteWarningTitle,
+                    modifier = Modifier.testTag("admin_delete_warning_title")
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = strings.adminDeleteWarningBody,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
+                    ) {
+                        Text(
+                            text = strings.adminDeleteOthersAuthNote,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+
+                    if (transferableMembers.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (selectedAdminAction == AdminDeleteAction.TRANSFER_OWNERSHIP) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                }
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedAdminAction = AdminDeleteAction.TRANSFER_OWNERSHIP
+                                    extraFamilyDeleteConfirmed = false
+                                }
+                                .testTag("admin_option_transfer_ownership")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                RadioButton(
+                                    selected = selectedAdminAction == AdminDeleteAction.TRANSFER_OWNERSHIP,
+                                    onClick = {
+                                        selectedAdminAction = AdminDeleteAction.TRANSFER_OWNERSHIP
+                                        extraFamilyDeleteConfirmed = false
+                                    }
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = strings.adminOptionTransferOwnership,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = strings.adminOptionTransferSubtitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        if (selectedAdminAction == AdminDeleteAction.TRANSFER_OWNERSHIP) {
+                            Text(
+                                text = strings.adminSelectNewOwnerLabel,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            transferableMembers.forEach { member ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { selectedNewOwnerUid = member.linkedUserId }
+                                        .padding(vertical = 4.dp)
+                                        .testTag("transfer_member_${member.linkedUserId}"),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = selectedNewOwnerUid == member.linkedUserId,
+                                        onClick = { selectedNewOwnerUid = member.linkedUserId }
+                                    )
+                                    Column {
+                                        Text(
+                                            text = member.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        if (member.email.isNotBlank()) {
+                                            Text(
+                                                text = member.email,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = strings.adminNoTransferableMembersNote,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = if (selectedAdminAction == AdminDeleteAction.DELETE_ENTIRE_FAMILY) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                            }
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedAdminAction = AdminDeleteAction.DELETE_ENTIRE_FAMILY
+                            }
+                            .testTag("admin_option_delete_family")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            RadioButton(
+                                selected = selectedAdminAction == AdminDeleteAction.DELETE_ENTIRE_FAMILY,
+                                onClick = {
+                                    selectedAdminAction = AdminDeleteAction.DELETE_ENTIRE_FAMILY
+                                }
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = strings.adminOptionDeleteFamily,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    text = strings.adminOptionDeleteFamilySubtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    if (selectedAdminAction == AdminDeleteAction.DELETE_ENTIRE_FAMILY) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { extraFamilyDeleteConfirmed = !extraFamilyDeleteConfirmed }
+                                .padding(top = 4.dp)
+                                .testTag("admin_delete_family_extra_confirm_row"),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = extraFamilyDeleteConfirmed,
+                                onCheckedChange = { extraFamilyDeleteConfirmed = it },
+                                modifier = Modifier.testTag("admin_delete_family_extra_confirm_checkbox")
+                            )
+                            Text(
+                                text = strings.adminExtraConfirmCheckbox,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                val canProceed = when (selectedAdminAction) {
+                    AdminDeleteAction.TRANSFER_OWNERSHIP -> !selectedNewOwnerUid.isNullOrBlank()
+                    AdminDeleteAction.DELETE_ENTIRE_FAMILY -> extraFamilyDeleteConfirmed
+                    AdminDeleteAction.NONE -> false
+                }
+                Button(
+                    onClick = {
+                        showAdminConsequenceDialog = false
+                        val targetUid = if (selectedAdminAction == AdminDeleteAction.TRANSFER_OWNERSHIP) {
+                            selectedNewOwnerUid
+                        } else {
+                            null
+                        }
+                        onConfirmDeleteAccount(selectedAdminAction, targetUid)
+                    },
+                    enabled = canProceed,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selectedAdminAction == AdminDeleteAction.DELETE_ENTIRE_FAMILY) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            NavyPrimary
+                        },
+                        contentColor = PureWhite
+                    ),
+                    modifier = Modifier.testTag("admin_delete_confirm_button")
+                ) {
+                    Text(
+                        if (selectedAdminAction == AdminDeleteAction.TRANSFER_OWNERSHIP) {
+                            strings.adminConfirmTransferAndDelete
+                        } else {
+                            strings.adminConfirmDeleteFamilyAndAccount
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showAdminConsequenceDialog = false },
+                    modifier = Modifier.testTag("admin_delete_cancel_button")
+                ) {
+                    Text(strings.deleteAccountNoCancel)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ProviderStatusRow(
+    icon: ImageVector,
+    label: String,
+    isLinked: Boolean,
+    linkedText: String,
+    notLinkedText: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = if (isLinked) SkySoft else MaterialTheme.colorScheme.surfaceVariant,
+            border = if (isLinked) BorderStroke(1.dp, SkyAccent) else null
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isLinked) {
+                    Icon(
+                        imageVector = Icons.Rounded.CheckCircle,
+                        contentDescription = null,
+                        tint = NavyPrimary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                Text(
+                    text = if (isLinked) linkedText else notLinkedText,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isLinked) NavyPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 

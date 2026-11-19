@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.compose.animation.animateColorAsState
@@ -40,7 +41,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -456,12 +459,14 @@ fun MemberAvatar(
     size: Dp = 48.dp,
     modifier: Modifier = Modifier
 ) {
-    val bitmap = remember(photoBase64) {
-        if (photoBase64.isNullOrBlank()) null
-        else runCatching {
-            val bytes = Base64.decode(photoBase64, Base64.DEFAULT)
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        }.getOrNull()
+    val bitmap by produceState<Bitmap?>(initialValue = null, photoBase64) {
+        value = if (photoBase64.isNullOrBlank()) null
+        else withContext(Dispatchers.Default) {
+            runCatching {
+                val bytes = Base64.decode(photoBase64, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }.getOrNull()
+        }
     }
     Box(
         modifier = modifier
@@ -472,9 +477,10 @@ fun MemberAvatar(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (bitmap != null) {
+        val decodedBitmap = bitmap
+        if (decodedBitmap != null) {
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = decodedBitmap.asImageBitmap(),
                 contentDescription = name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(size)

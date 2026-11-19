@@ -30,15 +30,6 @@
           "enum": ["en", "kn"],
           "description": "Preferred UI language code (English or Kannada)."
         },
-        "username": {
-          "type": "string",
-          "description": "Optional normalized family or member username when signed in via Family Username Login."
-        },
-        "authMethod": {
-          "type": "string",
-          "enum": ["google", "family_username", "member_username"],
-          "description": "Optional authentication method identifier."
-        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -89,14 +80,6 @@
         "autoBackupEnabled": {
           "type": "boolean",
           "description": "Whether automatic scheduled cloud backup is enabled for the family."
-        },
-        "familyUsername": {
-          "type": "string",
-          "description": "Optional unique lowercase username configured by the Admin for family login."
-        },
-        "hasFamilyPassword": {
-          "type": "boolean",
-          "description": "Optional indicator showing whether a family password has been provisioned server-side."
         },
         "createdAt": {
           "type": "string",
@@ -185,14 +168,6 @@
         "adminUid": {
           "type": "string",
           "description": "Denormalized family admin UID."
-        },
-        "memberUsername": {
-          "type": "string",
-          "description": "Optional individual member login username provisioned by Admin."
-        },
-        "loginEnabled": {
-          "type": "boolean",
-          "description": "Optional flag indicating whether this member login is currently active."
         },
         "createdAt": {
           "type": "string",

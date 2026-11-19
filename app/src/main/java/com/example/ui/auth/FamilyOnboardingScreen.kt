@@ -1,6 +1,5 @@
 package com.example.ui.auth
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,11 +45,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.R
 import com.example.localization.LocalAppStrings
 import com.example.ui.components.LanguageSwitcherPill
@@ -126,8 +127,15 @@ fun FamilyOnboardingScreen(
                         .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.img_family_shield),
+                    val onboardingContext = LocalContext.current
+                    AsyncImage(
+                        model = remember(onboardingContext) {
+                            ImageRequest.Builder(onboardingContext)
+                                .data(R.drawable.img_family_shield)
+                                .size(800, 600)
+                                .crossfade(true)
+                                .build()
+                        },
                         contentDescription = strings.appName,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
