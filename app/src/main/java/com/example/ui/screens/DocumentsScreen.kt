@@ -66,7 +66,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.domain.model.CategoryOption
 import com.example.domain.model.DocumentCategory
+import com.example.domain.model.EffectiveCloudConfig
 import com.example.domain.model.FamilyDocument
 import com.example.domain.model.FamilyMember
 import com.example.localization.LocalAppStrings
@@ -96,11 +98,13 @@ fun DocumentsScreen(
         notes: String?,
         issueDateMillis: Long,
         expiryDateMillis: Long
-    ) -> Unit
+    ) -> Unit,
+    cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig()
 ) {
     val strings = LocalAppStrings.current
+    val categoryOptions = remember(cloudConfig) { cloudConfig.allCategoryOptions() }
     var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf<DocumentCategory?>(null) }
+    var selectedCategoryKey by remember { mutableStateOf<String?>(null) }
     var selectedMemberId by remember(initialMemberFilterId) { mutableStateOf(initialMemberFilterId) }
     var showUploadSourceSheet by remember(openUploadInitially) {
         mutableStateOf(openUploadInitially).also {
@@ -129,14 +133,15 @@ fun DocumentsScreen(
         }
     }
 
-    val filteredDocs = remember(documents, searchQuery, selectedCategory, selectedMemberId) {
+    val filteredDocs = remember(documents, searchQuery, selectedCategoryKey, selectedMemberId) {
         documents.filter { doc ->
             val matchesQuery = searchQuery.isBlank() ||
                 doc.title.contains(searchQuery, ignoreCase = true) ||
                 doc.category.contains(searchQuery, ignoreCase = true) ||
                 doc.memberName.contains(searchQuery, ignoreCase = true) ||
                 (doc.documentNumberMasked?.contains(searchQuery, ignoreCase = true) == true)
-            val matchesCategory = selectedCategory == null || doc.category == selectedCategory?.storageKey
+            val matchesCategory = selectedCategoryKey == null ||
+                doc.category.equals(selectedCategoryKey, ignoreCase = true)
             val matchesMember = selectedMemberId == null || doc.memberId == selectedMemberId
             matchesQuery && matchesCategory && matchesMember
         }
@@ -198,28 +203,32 @@ fun DocumentsScreen(
             item {
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     LazyRow(
-                        modifier = Modifier.fillMaxWidth().widthIn(max = 960.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 960.dp)
+                            .testTag("documents_category_row"),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         item {
                             FilterChip(
-                                selected = selectedCategory == null,
-                                onClick = { selectedCategory = null },
+                                selected = selectedCategoryKey == null,
+                                onClick = { selectedCategoryKey = null },
                                 label = { Text(strings.allCategories) },
                                 modifier = Modifier.testTag("category_chip_all")
                             )
                         }
-                        items(DocumentCategory.entries) { cat ->
+                        items(categoryOptions, key = { it.storageKey }) { cat ->
+                            val isSelected = selectedCategoryKey.equals(cat.storageKey, ignoreCase = true)
                             FilterChip(
-                                selected = selectedCategory == cat,
+                                selected = isSelected,
                                 onClick = {
-                                    selectedCategory = if (selectedCategory == cat) null else cat
+                                    selectedCategoryKey = if (isSelected) null else cat.storageKey
                                 },
                                 leadingIcon = {
                                     Icon(cat.icon, contentDescription = null, modifier = Modifier.size(16.dp))
                                 },
                                 label = { Text(cat.localizedLabel(strings.languageCode)) },
-                                modifier = Modifier.testTag("category_chip_${cat.name.lowercase()}")
+                                modifier = Modifier.testTag("category_chip_${cat.storageKey.lowercase()}")
                             )
                         }
                     }
@@ -297,10 +306,12 @@ fun DocumentsScreen(
                                 Button(onClick = { showUploadSourceSheet = true }) {
                                     Text(strings.quickUpload)
                                 }
-                                OutlinedButton(onClick = onLoadSampleDocs) {
-                                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(strings.loadSampleDocs)
+                                if (cloudConfig.showSampleDocs) {
+                                    OutlinedButton(onClick = onLoadSampleDocs) {
+                                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(strings.loadSampleDocs)
+                                    }
                                 }
                             }
                         }
@@ -312,7 +323,8 @@ fun DocumentsScreen(
                         DocumentCardItem(
                             document = doc,
                             onClick = { onOpenDocumentDetail(doc) },
-                            modifier = Modifier.widthIn(max = 960.dp)
+                            modifier = Modifier.widthIn(max = 960.dp),
+                            cloudConfig = cloudConfig
                         )
                     }
                 }
@@ -374,17 +386,19 @@ fun DocumentsScreen(
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(strings.scanWithCamera)
                 }
-                OutlinedButton(
-                    onClick = {
-                        showUploadSourceSheet = false
-                        onLoadSampleDocs()
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("upload_load_samples_button")
-                ) {
-                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(strings.loadSampleDocs)
+                if (cloudConfig.showSampleDocs) {
+                    OutlinedButton(
+                        onClick = {
+                            showUploadSourceSheet = false
+                            onLoadSampleDocs()
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp).testTag("upload_load_samples_button")
+                    ) {
+                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(strings.loadSampleDocs)
+                    }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -392,15 +406,16 @@ fun DocumentsScreen(
     }
 
     pendingUri?.let { uri ->
-        DocumentMetadataDialog(
+        CloudDocumentMetadataDialog(
             members = members,
-            defaultCategory = selectedCategory ?: DocumentCategory.AADHAAR,
+            categoryOptions = categoryOptions,
+            defaultCategoryKey = selectedCategoryKey ?: DocumentCategory.AADHAAR.storageKey,
             onDismiss = { pendingUri = null },
-            onConfirm = { title, category, member, maskedId, notes, issueMs, expiryMs ->
+            onConfirm = { title, categoryKey, member, maskedId, notes, issueMs, expiryMs ->
                 onUploadDocumentUri(
                     uri,
                     title,
-                    category.storageKey,
+                    categoryKey,
                     member,
                     pendingFileType,
                     maskedId,
@@ -411,6 +426,225 @@ fun DocumentsScreen(
                 pendingUri = null
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CloudDocumentMetadataDialog(
+    members: List<FamilyMember>,
+    categoryOptions: List<CategoryOption>,
+    defaultCategoryKey: String,
+    onDismiss: () -> Unit,
+    onConfirm: (
+        title: String,
+        categoryKey: String,
+        member: FamilyMember?,
+        maskedId: String?,
+        notes: String?,
+        issueDateMillis: Long,
+        expiryDateMillis: Long
+    ) -> Unit
+) {
+    val strings = LocalAppStrings.current
+    val initialOption = categoryOptions.firstOrNull {
+        it.storageKey.equals(defaultCategoryKey, ignoreCase = true)
+    } ?: categoryOptions.first()
+    var title by remember { mutableStateOf("") }
+    var selectedCategory by remember(initialOption) { mutableStateOf(initialOption) }
+    var categoryExpanded by remember { mutableStateOf(false) }
+    var selectedMember by remember(members) { mutableStateOf(members.firstOrNull()) }
+    var memberExpanded by remember { mutableStateOf(false) }
+    var maskedId by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
+    var issueMillis by remember { mutableLongStateOf(0L) }
+    var expiryMillis by remember { mutableLongStateOf(0L) }
+    var pickingIssueDate by remember { mutableStateOf(false) }
+    var pickingExpiryDate by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strings.uploadDocumentTitle) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text(strings.documentTitleLabel) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("doc_metadata_title_input")
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = categoryExpanded,
+                    onExpandedChange = { categoryExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = selectedCategory.localizedLabel(strings.languageCode),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(strings.categoryLabel) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = categoryExpanded,
+                        onDismissRequest = { categoryExpanded = false }
+                    ) {
+                        categoryOptions.forEach { cat ->
+                            DropdownMenuItem(
+                                text = { Text(cat.localizedLabel(strings.languageCode)) },
+                                leadingIcon = { Icon(cat.icon, contentDescription = null) },
+                                onClick = {
+                                    selectedCategory = cat
+                                    categoryExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (members.isNotEmpty()) {
+                    ExposedDropdownMenuBox(
+                        expanded = memberExpanded,
+                        onExpandedChange = { memberExpanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = selectedMember?.name ?: "",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(strings.memberOwnerLabel) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = memberExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = memberExpanded,
+                            onDismissRequest = { memberExpanded = false }
+                        ) {
+                            members.forEach { member ->
+                                DropdownMenuItem(
+                                    text = { Text("${member.name} (${member.relation})") },
+                                    onClick = {
+                                        selectedMember = member
+                                        memberExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = maskedId,
+                    onValueChange = { maskedId = it },
+                    label = { Text(strings.docNumberOptionalLabel) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { pickingIssueDate = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            if (issueMillis > 0L) formatDateMillis(issueMillis) else strings.issueDateLabel,
+                            maxLines = 1
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { pickingExpiryDate = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            if (expiryMillis > 0L) formatDateMillis(expiryMillis) else strings.expiryDateLabel,
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text(strings.notesOptionalLabel) },
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val finalTitle = title.trim().ifBlank { selectedCategory.localizedLabel(strings.languageCode) }
+                    onConfirm(
+                        finalTitle,
+                        selectedCategory.storageKey,
+                        selectedMember,
+                        maskedId.trim().ifBlank { null },
+                        notes.trim().ifBlank { null },
+                        issueMillis,
+                        expiryMillis
+                    )
+                },
+                modifier = Modifier.testTag("save_document_metadata_button")
+            ) {
+                Text(strings.save)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(strings.cancel)
+            }
+        }
+    )
+
+    if (pickingIssueDate) {
+        val state = rememberDatePickerState(
+            initialSelectedDateMillis = issueMillis.takeIf { it > 0L } ?: System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { pickingIssueDate = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    issueMillis = state.selectedDateMillis ?: 0L
+                    pickingIssueDate = false
+                }) { Text(strings.selectDate) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    issueMillis = 0L
+                    pickingIssueDate = false
+                }) { Text(strings.clearDate) }
+            }
+        ) {
+            DatePicker(state = state)
+        }
+    }
+
+    if (pickingExpiryDate) {
+        val state = rememberDatePickerState(
+            initialSelectedDateMillis = expiryMillis.takeIf { it > 0L } ?: System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { pickingExpiryDate = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    expiryMillis = state.selectedDateMillis ?: 0L
+                    pickingExpiryDate = false
+                }) { Text(strings.selectDate) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    expiryMillis = 0L
+                    pickingExpiryDate = false
+                }) { Text(strings.clearDate) }
+            }
+        ) {
+            DatePicker(state = state)
+        }
     }
 }
 

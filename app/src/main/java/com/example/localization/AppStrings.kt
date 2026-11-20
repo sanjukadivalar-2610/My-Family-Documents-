@@ -2,6 +2,53 @@ package com.example.localization
 
 import androidx.compose.runtime.staticCompositionLocalOf
 
+data class UpdateStrings(
+    val appUpdatesTitle: String,
+    val settingsUpdatesLink: String,
+    val newUpdateAvailableTitle: String,
+    val updateButtonLabel: String,
+    val appUpToDateMessage: String,
+    val checkingForUpdatesMessage: String,
+    val checkUpdatesAgainButton: String,
+    val installedVersionLabel: String,
+    val latestPublishedVersionLabel: String,
+    val releaseNotesLabel: String,
+    val downloadingUpdateTitle: String,
+    val cancelDownloadButton: String,
+    val verifyingApkMessage: String,
+    val verifiedPackageLabel: String,
+    val verifiedSignatureLabel: String,
+    val verifiedVersionLabel: String,
+    val installPermissionTitle: String,
+    val installPermissionBody: String,
+    val allowAndInstallButton: String,
+    val readyToInstallTitle: String,
+    val launchInstallerButton: String,
+    val installCanceledTitle: String,
+    val installCanceledBody: String,
+    val retryInstallButton: String,
+    val preserveDataAssuranceNote: String,
+    val cloudContentSyncTitle: String,
+    val cloudSyncActiveBadge: String,
+    val cloudCategoriesCountLabel: String,
+    val cloudExpiryWindowLabel: String,
+    val apkVsCloudTitle: String,
+    val apkUpdateRequiresRebuildNote: String,
+    val cloudUpdatesNoApkNote: String,
+    val adminCloudConfigTitle: String,
+    val cloudNoticeToggleLabel: String,
+    val cloudNoticeTitleLabel: String,
+    val cloudNoticeBodyLabel: String,
+    val cloudBannerLabelField: String,
+    val cloudExpiryDaysField: String,
+    val cloudExtraCategoryKeyLabel: String,
+    val cloudExtraCategoryEnLabel: String,
+    val cloudExtraCategoryKnLabel: String,
+    val addCloudCategoryButton: String,
+    val saveCloudConfigButton: String,
+    val cloudConfigSavedMsg: String
+)
+
 data class AppStrings(
     val languageCode: String,
     val appName: String,
@@ -250,7 +297,149 @@ data class AppStrings(
     val completedStepsHeading: String,
     val pendingStepsHeading: String,
     val retryCleanupButton: String,
-    val accountDeletedSuccessMessage: String
+    val accountDeletedSuccessMessage: String,
+
+    // App Updates & Cloud-Synced Content
+    val updates: UpdateStrings
+) {
+    val appUpdatesTitle: String get() = updates.appUpdatesTitle
+    val settingsUpdatesLink: String get() = updates.settingsUpdatesLink
+    val newUpdateAvailableTitle: String get() = updates.newUpdateAvailableTitle
+    val updateButtonLabel: String get() = updates.updateButtonLabel
+    val appUpToDateMessage: String get() = updates.appUpToDateMessage
+    val checkingForUpdatesMessage: String get() = updates.checkingForUpdatesMessage
+    val checkUpdatesAgainButton: String get() = updates.checkUpdatesAgainButton
+    val installedVersionLabel: String get() = updates.installedVersionLabel
+    val latestPublishedVersionLabel: String get() = updates.latestPublishedVersionLabel
+    val releaseNotesLabel: String get() = updates.releaseNotesLabel
+    val downloadingUpdateTitle: String get() = updates.downloadingUpdateTitle
+    val cancelDownloadButton: String get() = updates.cancelDownloadButton
+    val verifyingApkMessage: String get() = updates.verifyingApkMessage
+    val verifiedPackageLabel: String get() = updates.verifiedPackageLabel
+    val verifiedSignatureLabel: String get() = updates.verifiedSignatureLabel
+    val verifiedVersionLabel: String get() = updates.verifiedVersionLabel
+    val installPermissionTitle: String get() = updates.installPermissionTitle
+    val installPermissionBody: String get() = updates.installPermissionBody
+    val allowAndInstallButton: String get() = updates.allowAndInstallButton
+    val readyToInstallTitle: String get() = updates.readyToInstallTitle
+    val launchInstallerButton: String get() = updates.launchInstallerButton
+    val installCanceledTitle: String get() = updates.installCanceledTitle
+    val installCanceledBody: String get() = updates.installCanceledBody
+    val retryInstallButton: String get() = updates.retryInstallButton
+    val preserveDataAssuranceNote: String get() = updates.preserveDataAssuranceNote
+    val cloudContentSyncTitle: String get() = updates.cloudContentSyncTitle
+    val cloudSyncActiveBadge: String get() = updates.cloudSyncActiveBadge
+    val cloudCategoriesCountLabel: String get() = updates.cloudCategoriesCountLabel
+    val cloudExpiryWindowLabel: String get() = updates.cloudExpiryWindowLabel
+    val apkVsCloudTitle: String get() = updates.apkVsCloudTitle
+    val apkUpdateRequiresRebuildNote: String get() = updates.apkUpdateRequiresRebuildNote
+    val cloudUpdatesNoApkNote: String get() = updates.cloudUpdatesNoApkNote
+    val adminCloudConfigTitle: String get() = updates.adminCloudConfigTitle
+    val cloudNoticeToggleLabel: String get() = updates.cloudNoticeToggleLabel
+    val cloudNoticeTitleLabel: String get() = updates.cloudNoticeTitleLabel
+    val cloudNoticeBodyLabel: String get() = updates.cloudNoticeBodyLabel
+    val cloudBannerLabelField: String get() = updates.cloudBannerLabelField
+    val cloudExpiryDaysField: String get() = updates.cloudExpiryDaysField
+    val cloudExtraCategoryKeyLabel: String get() = updates.cloudExtraCategoryKeyLabel
+    val cloudExtraCategoryEnLabel: String get() = updates.cloudExtraCategoryEnLabel
+    val cloudExtraCategoryKnLabel: String get() = updates.cloudExtraCategoryKnLabel
+    val addCloudCategoryButton: String get() = updates.addCloudCategoryButton
+    val saveCloudConfigButton: String get() = updates.saveCloudConfigButton
+    val cloudConfigSavedMsg: String get() = updates.cloudConfigSavedMsg
+}
+
+private val EnglishUpdateStrings = UpdateStrings(
+    appUpdatesTitle = "App Updates & Cloud Sync",
+    settingsUpdatesLink = "App Updates & Cloud Sync",
+    newUpdateAvailableTitle = "New Update Available",
+    updateButtonLabel = "UPDATE",
+    appUpToDateMessage = "Your app is up to date.",
+    checkingForUpdatesMessage = "Checking GitHub Releases for a newer version...",
+    checkUpdatesAgainButton = "Check Again",
+    installedVersionLabel = "Installed Version",
+    latestPublishedVersionLabel = "Latest Published Version",
+    releaseNotesLabel = "What's New",
+    downloadingUpdateTitle = "Downloading APK Update...",
+    cancelDownloadButton = "Cancel Download",
+    verifyingApkMessage = "Verifying package ID, signing certificate, and version...",
+    verifiedPackageLabel = "Package ID Verified",
+    verifiedSignatureLabel = "Signing Certificate Verified",
+    verifiedVersionLabel = "Version Upgrade Verified",
+    installPermissionTitle = "Allow App Installation",
+    installPermissionBody = "Android requires permission for My Family Doc to open the official installer. Your existing documents, family, PIN, and login stay untouched.",
+    allowAndInstallButton = "Allow & Install",
+    readyToInstallTitle = "Update Verified & Ready",
+    launchInstallerButton = "Install Update Now",
+    installCanceledTitle = "Installation Canceled",
+    installCanceledBody = "Your update was not installed. No existing app data was modified. You can retry installing the verified APK anytime.",
+    retryInstallButton = "Retry Install",
+    preserveDataAssuranceNote = "Same Application ID & signing certificate verified — all existing encrypted documents, PIN, and login session are preserved.",
+    cloudContentSyncTitle = "Instant Cloud Sync (No APK Needed)",
+    cloudSyncActiveBadge = "Firestore Live Sync",
+    cloudCategoriesCountLabel = "Active Categories",
+    cloudExpiryWindowLabel = "Expiry Alert Window",
+    apkVsCloudTitle = "APK Updates vs. Cloud Sync",
+    apkUpdateRequiresRebuildNote = "• New Kotlin/Compose code, native features, or layout changes require a new APK update.",
+    cloudUpdatesNoApkNote = "• Document categories, notices, configurable labels, and supported settings sync from Firebase without an APK update.",
+    adminCloudConfigTitle = "Manage Cloud Categories, Notice & Settings",
+    cloudNoticeToggleLabel = "Show Cloud Notice on Dashboard",
+    cloudNoticeTitleLabel = "Notice Title",
+    cloudNoticeBodyLabel = "Notice Message",
+    cloudBannerLabelField = "Custom Home Vault Tagline / Label",
+    cloudExpiryDaysField = "Expiry Warning Window (Days)",
+    cloudExtraCategoryKeyLabel = "New Category Key",
+    cloudExtraCategoryEnLabel = "English Label",
+    cloudExtraCategoryKnLabel = "Kannada Label (Optional)",
+    addCloudCategoryButton = "Add Category",
+    saveCloudConfigButton = "Publish Cloud Update",
+    cloudConfigSavedMsg = "Cloud configuration synced to family devices without an APK update."
+)
+
+private val KannadaUpdateStrings = UpdateStrings(
+    appUpdatesTitle = "ಆ್ಯಪ್ ನವೀಕರಣ ಮತ್ತು ಕ್ಲೌಡ್ ಸಿಂಕ್",
+    settingsUpdatesLink = "ಆ್ಯಪ್ ನವೀಕರಣ ಮತ್ತು ಕ್ಲೌಡ್ ಸಿಂಕ್",
+    newUpdateAvailableTitle = "ಹೊಸ ನವೀಕರಣ ಲಭ್ಯವಿದೆ (New Update Available)",
+    updateButtonLabel = "ನವೀಕರಿಸಿ (UPDATE)",
+    appUpToDateMessage = "ನಿಮ್ಮ ಆ್ಯಪ್ ನವೀಕೃತವಾಗಿದೆ. (Your app is up to date.)",
+    checkingForUpdatesMessage = "GitHub Releases ನಿಂದ ಹೊಸ ಆವೃತ್ತಿ ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ...",
+    checkUpdatesAgainButton = "ಮತ್ತೆ ಪರಿಶೀಲಿಸಿ",
+    installedVersionLabel = "ಇನ್‌ಸ್ಟಾಲ್ ಆಗಿರುವ ಆವೃತ್ತಿ",
+    latestPublishedVersionLabel = "ಇತ್ತೀಚಿನ ಪ್ರಕಟಿತ ಆವೃತ್ತಿ",
+    releaseNotesLabel = "ಹೊಸ ಬದಲಾವಣೆಗಳು",
+    downloadingUpdateTitle = "APK ನವೀಕರಣ ಡೌನ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ...",
+    cancelDownloadButton = "ಡೌನ್‌ಲೋಡ್ ರದ್ದುಮಾಡಿ",
+    verifyingApkMessage = "ಪ್ಯಾಕೇಜ್ ID, ಸಹಿ ಪ್ರಮಾಣಪತ್ರ ಮತ್ತು ಆವೃತ್ತಿ ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ...",
+    verifiedPackageLabel = "ಪ್ಯಾಕೇಜ್ ID ದೃಢೀಕರಿಸಲಾಗಿದೆ",
+    verifiedSignatureLabel = "ಸಹಿ ಪ್ರಮಾಣಪತ್ರ ದೃಢೀಕರಿಸಲಾಗಿದೆ",
+    verifiedVersionLabel = "ಆವೃತ್ತಿ ಅಪ್‌ಗ್ರೇಡ್ ದೃಢೀಕರಿಸಲಾಗಿದೆ",
+    installPermissionTitle = "ಆ್ಯಪ್ ಇನ್‌ಸ್ಟಾಲ್ ಅನುಮತಿ ನೀಡಿ",
+    installPermissionBody = "ಅಧಿಕೃತ Android ಇನ್‌ಸ್ಟಾಲರ್ ತೆರೆಯಲು ಅನುಮತಿ ಅಗತ್ಯವಿದೆ. ನಿಮ್ಮ ದಾಖಲೆಗಳು, ಕುಟುಂಬ, PIN ಮತ್ತು ಲಾಗಿನ್ ಸುರಕ್ಷಿತವಾಗಿರುತ್ತವೆ.",
+    allowAndInstallButton = "ಅನುಮತಿಸಿ ಮತ್ತು ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಿ",
+    readyToInstallTitle = "ನವೀಕರಣ ಪರಿಶೀಲನೆ ಪೂರ್ಣಗೊಂಡಿದೆ",
+    launchInstallerButton = "ಈಗಲೇ ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಿ",
+    installCanceledTitle = "ಇನ್‌ಸ್ಟಾಲೇಶನ್ ರದ್ದುಗೊಂಡಿದೆ",
+    installCanceledBody = "ನವೀಕರಣವನ್ನು ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಲಾಗಿಲ್ಲ. ನಿಮ್ಮ ಯಾವುದೇ ಡೇಟಾ ಬದಲಾಗಿಲ್ಲ. ಪರಿಶೀಲಿಸಿದ APK ಅನ್ನು ಮತ್ತೆ ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಬಹುದು.",
+    retryInstallButton = "ಮತ್ತೆ ಇನ್‌ಸ್ಟಾಲ್ ಪ್ರಯತ್ನಿಸಿ",
+    preserveDataAssuranceNote = "ಒಂದೇ Application ID ಮತ್ತು ಸಹಿ ಪ್ರಮಾಣಪತ್ರ ದೃಢೀಕರಿಸಲಾಗಿದೆ — ನಿಮ್ಮ ಎಲ್ಲಾ ದಾಖಲೆಗಳು ಮತ್ತು ಲಾಗಿನ್ ಸುರಕ್ಷಿತವಾಗಿರುತ್ತವೆ.",
+    cloudContentSyncTitle = "ತಕ್ಷಣದ ಕ್ಲೌಡ್ ಸಿಂಕ್ (APK ಅಗತ್ಯವಿಲ್ಲ)",
+    cloudSyncActiveBadge = "Firestore ಲೈವ್ ಸಿಂಕ್",
+    cloudCategoriesCountLabel = "ಸಕ್ರಿಯ ವರ್ಗಗಳು",
+    cloudExpiryWindowLabel = "ಮುಕ್ತಾಯ ಎಚ್ಚರಿಕೆ ಅವಧಿ",
+    apkVsCloudTitle = "APK ನವೀಕರಣ vs ಕ್ಲೌಡ್ ಸಿಂಕ್",
+    apkUpdateRequiresRebuildNote = "• Kotlin/Compose ಕೋಡ್, ಹೊಸ ಸ್ಥಳೀಯ ವೈಶಿಷ್ಟ್ಯಗಳು ಅಥವಾ ವಿನ್ಯಾಸ ಬದಲಾವಣೆಗಳಿಗೆ ಹೊಸ APK ಅಗತ್ಯವಿದೆ.",
+    cloudUpdatesNoApkNote = "• ವರ್ಗಗಳು, ಸೂಚನೆಗಳು, ಲೇಬಲ್‌ಗಳು ಮತ್ತು ಬೆಂಬಲಿತ ಸೆಟ್ಟಿಂಗ್‌ಗಳು APK ಇಲ್ಲದೆಯೇ Firebase ನಿಂದ ಸಿಂಕ್ ಆಗುತ್ತವೆ.",
+    adminCloudConfigTitle = "ಕ್ಲೌಡ್ ವರ್ಗಗಳು, ಸೂಚನೆ & ಸೆಟ್ಟಿಂಗ್ಸ್ ನಿರ್ವಹಿಸಿ",
+    cloudNoticeToggleLabel = "ಮುಖಪುಟದಲ್ಲಿ ಕ್ಲೌಡ್ ಸೂಚನೆ ತೋರಿಸಿ",
+    cloudNoticeTitleLabel = "ಸೂಚನೆಯ ಶೀರ್ಷಿಕೆ",
+    cloudNoticeBodyLabel = "ಸೂಚನೆಯ ಸಂದೇಶ",
+    cloudBannerLabelField = "ಮುಖಪುಟ ಕಸ್ಟಮ್ ಲೇಬಲ್",
+    cloudExpiryDaysField = "ಮುಕ್ತಾಯ ಎಚ್ಚರಿಕೆ ದಿನಗಳು",
+    cloudExtraCategoryKeyLabel = "ಹೊಸ ವರ್ಗ ಕೀ",
+    cloudExtraCategoryEnLabel = "ಇಂಗ್ಲಿಷ್ ಹೆಸರು",
+    cloudExtraCategoryKnLabel = "ಕನ್ನಡ ಹೆಸರು (ಐಚ್ಛಿಕ)",
+    addCloudCategoryButton = "ವರ್ಗ ಸೇರಿಸಿ",
+    saveCloudConfigButton = "ಕ್ಲೌಡ್ ನವೀಕರಣ ಪ್ರಕಟಿಸಿ",
+    cloudConfigSavedMsg = "APK ನವೀಕರಣವಿಲ್ಲದೆಯೇ ಕ್ಲೌಡ್ ಸೆಟ್ಟಿಂಗ್‌ಗಳು ಎಲ್ಲಾ ಕುಟುಂಬ ಸಾಧನಗಳಿಗೆ ಸಿಂಕ್ ಆಗಿವೆ."
 )
 
 val EnglishStrings = AppStrings(
@@ -490,7 +679,9 @@ val EnglishStrings = AppStrings(
     completedStepsHeading = "Completed:",
     pendingStepsHeading = "Pending Cleanup:",
     retryCleanupButton = "Retry Cleanup",
-    accountDeletedSuccessMessage = "Your account and associated data have been permanently deleted."
+    accountDeletedSuccessMessage = "Your account and associated data have been permanently deleted.",
+
+    updates = EnglishUpdateStrings
 )
 
 val KannadaStrings = AppStrings(
@@ -730,7 +921,9 @@ val KannadaStrings = AppStrings(
     completedStepsHeading = "ಪೂರ್ಣಗೊಂಡ ಹಂತಗಳು:",
     pendingStepsHeading = "ಬಾಕಿ ಇರುವ ಹಂತಗಳು:",
     retryCleanupButton = "ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ",
-    accountDeletedSuccessMessage = "ನಿಮ್ಮ ಖಾತೆ ಮತ್ತು ಸಂಬಂಧಿತ ಡೇಟಾವನ್ನು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗಿದೆ."
+    accountDeletedSuccessMessage = "ನಿಮ್ಮ ಖಾತೆ ಮತ್ತು ಸಂಬಂಧಿತ ಡೇಟಾವನ್ನು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗಿದೆ.",
+
+    updates = KannadaUpdateStrings
 )
 
 fun stringsForLanguage(code: String): AppStrings =

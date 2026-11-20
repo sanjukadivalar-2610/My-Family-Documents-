@@ -25,17 +25,21 @@ import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -52,7 +56,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.data.update.AppUpdateState
+import com.example.data.update.UpdatePhase
 import com.example.domain.model.BackupStatusInfo
+import com.example.domain.model.EffectiveCloudConfig
 import com.example.domain.model.ExpiryStatus
 import com.example.domain.model.FamilyAccount
 import com.example.domain.model.FamilyDocument
@@ -66,6 +73,7 @@ import com.example.ui.components.LanguageSwitcherPill
 import com.example.ui.components.SectionHeader
 import com.example.ui.components.SyncStatusBadge
 import com.example.ui.components.formatDateMillis
+import com.example.ui.theme.AmberSoft
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.EmeraldVerified
 import com.example.ui.theme.NavyPrimary
@@ -92,13 +100,17 @@ fun HomeDashboardScreen(
     onOpenBackup: () -> Unit,
     onOpenAdminPanel: () -> Unit,
     onOpenDocumentDetail: (FamilyDocument) -> Unit,
-    onShowMessage: (String) -> Unit
+    onShowMessage: (String) -> Unit,
+    updateState: AppUpdateState = AppUpdateState(),
+    cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig(),
+    onOpenUpdates: () -> Unit = {},
+    onStartAppUpdate: () -> Unit = {}
 ) {
     val strings = LocalAppStrings.current
     val clipboard = LocalClipboardManager.current
     val now = System.currentTimeMillis()
     val expiringDocs = documents.filter {
-        val status = it.expiryStatus(now)
+        val status = it.expiryStatus(now, cloudConfig.expiryWarningDays)
         status == ExpiryStatus.EXPIRING_SOON || status == ExpiryStatus.EXPIRED
     }
     val recentDocs = documents.take(5)
@@ -205,6 +217,24 @@ fun HomeDashboardScreen(
                                 }
                             }
 
+                            val bannerLabel = cloudConfig.localizedHomeBannerLabel(languageCode)
+                            if (bannerLabel.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = PureWhite.copy(alpha = 0.14f),
+                                    modifier = Modifier.testTag("home_cloud_banner_label")
+                                ) {
+                                    Text(
+                                        text = bannerLabel,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = SkySoft,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
+
                             Spacer(modifier = Modifier.height(18.dp))
 
                             Row(
@@ -250,6 +280,152 @@ fun HomeDashboardScreen(
                                         Text(strings.adminConsoleButton, maxLines = 1)
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Automatic APK Update Banner (ONLY shown when remote versionCode > installed versionCode)
+        if (updateState.hasUpdate) {
+            item {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 960.dp)
+                            .clickable(onClick = onOpenUpdates)
+                            .testTag("home_update_banner"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = SkySoft),
+                        border = BorderStroke(1.dp, SkyAccent)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(NavyPrimary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.SystemUpdate,
+                                    contentDescription = strings.newUpdateAvailableTitle,
+                                    tint = SkyAccent
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = strings.newUpdateAvailableTitle,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NavyPrimary
+                                )
+                                val remote = updateState.remoteVersion
+                                if (remote != null) {
+                                    Text(
+                                        text = "v${remote.versionName} (${remote.versionCode}) • ${remote.releaseNotes.ifBlank { strings.preserveDataAssuranceNote }}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            when (updateState.phase) {
+                                UpdatePhase.DOWNLOADING, UpdatePhase.VERIFYING -> {
+                                    CircularProgressIndicator(
+                                        color = NavyPrimary,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+
+                                else -> {
+                                    Button(
+                                        onClick = {
+                                            if (updateState.verifiedApkFile != null || updateState.phase == UpdatePhase.NEEDS_INSTALL_PERMISSION) {
+                                                onOpenUpdates()
+                                            } else {
+                                                onStartAppUpdate()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = NavyPrimary,
+                                            contentColor = PureWhite
+                                        ),
+                                        modifier = Modifier
+                                            .height(48.dp)
+                                            .testTag("home_update_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Download,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(strings.updateButtonLabel, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Cloud-Synced Family/App Notice Banner (delivered live without APK rebuild)
+        val cloudNoticeBody = cloudConfig.localizedNoticeBody(languageCode)
+        if (cloudConfig.noticeActive && cloudNoticeBody.isNotBlank()) {
+            item {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 960.dp)
+                            .clickable(onClick = onOpenUpdates)
+                            .testTag("home_cloud_notice_banner"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = AmberSoft),
+                        border = BorderStroke(1.dp, AmberWarning.copy(alpha = 0.7f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Campaign,
+                                contentDescription = null,
+                                tint = NavyPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                val noticeTitle = cloudConfig.localizedNoticeTitle(languageCode)
+                                if (noticeTitle.isNotBlank()) {
+                                    Text(
+                                        text = noticeTitle,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = NavyPrimary
+                                    )
+                                }
+                                Text(
+                                    text = cloudNoticeBody,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NavyPrimary
+                                )
                             }
                         }
                     }
@@ -430,14 +606,16 @@ fun HomeDashboardScreen(
                                 )
                             }
                         }
-                        item {
-                            QuickActionTile(
-                                icon = Icons.Rounded.AutoAwesome,
-                                label = strings.loadSampleDocs,
-                                tint = EmeraldVerified,
-                                tag = "home_load_samples_action",
-                                onClick = onLoadSamples
-                            )
+                        if (cloudConfig.showSampleDocs) {
+                            item {
+                                QuickActionTile(
+                                    icon = Icons.Rounded.AutoAwesome,
+                                    label = strings.loadSampleDocs,
+                                    tint = EmeraldVerified,
+                                    tag = "home_load_samples_action",
+                                    onClick = onLoadSamples
+                                )
+                            }
                         }
                     }
                 }
@@ -455,7 +633,8 @@ fun HomeDashboardScreen(
                             expiringDocs.take(3).forEach { doc ->
                                 DocumentCardItem(
                                     document = doc,
-                                    onClick = { onOpenDocumentDetail(doc) }
+                                    onClick = { onOpenDocumentDetail(doc) },
+                                    cloudConfig = cloudConfig
                                 )
                             }
                         }
@@ -520,7 +699,8 @@ fun HomeDashboardScreen(
                     DocumentCardItem(
                         document = doc,
                         onClick = { onOpenDocumentDetail(doc) },
-                        modifier = Modifier.widthIn(max = 960.dp)
+                        modifier = Modifier.widthIn(max = 960.dp),
+                        cloudConfig = cloudConfig
                     )
                 }
             }

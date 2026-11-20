@@ -98,12 +98,15 @@ data class FamilyDocument(
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null
 ) {
-    fun expiryStatus(nowMillis: Long = System.currentTimeMillis()): ExpiryStatus {
+    fun expiryStatus(
+        nowMillis: Long = System.currentTimeMillis(),
+        warningDays: Long = 30L
+    ): ExpiryStatus {
         if (expiryDateMillis <= 0L) return ExpiryStatus.NO_EXPIRY
         val daysLeft = (expiryDateMillis - nowMillis) / MILLIS_PER_DAY
         return when {
             expiryDateMillis < nowMillis -> ExpiryStatus.EXPIRED
-            daysLeft <= 30L -> ExpiryStatus.EXPIRING_SOON
+            daysLeft <= warningDays.coerceIn(1L, 365L) -> ExpiryStatus.EXPIRING_SOON
             else -> ExpiryStatus.VALID
         }
     }

@@ -310,9 +310,56 @@
         }
       },
       "required": ["familyId", "adminUid", "keyBase64", "keyVersion", "createdAt", "updatedAt"]
+    },
+    "CloudAppConfig": {
+      "title": "CloudAppConfig",
+      "description": "Global cloud-synced notices, dynamic document categories, configurable labels, and supported settings synced without an APK update.",
+      "type": "object",
+      "properties": {
+        "configVersion": { "type": "integer" },
+        "noticeActive": { "type": "boolean" },
+        "noticeTitleEn": { "type": "string" },
+        "noticeTitleKn": { "type": "string" },
+        "noticeBodyEn": { "type": "string" },
+        "noticeBodyKn": { "type": "string" },
+        "noticeLevel": { "type": "string", "enum": ["info", "warning", "maintenance"] },
+        "homeBannerLabelEn": { "type": "string" },
+        "homeBannerLabelKn": { "type": "string" },
+        "extraCategories": { "type": "array" },
+        "expiryWarningDays": { "type": "integer" },
+        "showSampleDocs": { "type": "boolean" },
+        "minRecommendedVersionCode": { "type": "integer" }
+      }
+    },
+    "FamilyCloudConfig": {
+      "title": "FamilyCloudConfig",
+      "description": "Family-scoped cloud-synced notices, custom categories, configurable labels, and supported vault settings editable by the Family Admin without rebuilding the APK.",
+      "type": "object",
+      "properties": {
+        "familyId": { "type": "string" },
+        "adminUid": { "type": "string" },
+        "noticeActive": { "type": "boolean" },
+        "noticeTitleEn": { "type": "string" },
+        "noticeTitleKn": { "type": "string" },
+        "noticeBodyEn": { "type": "string" },
+        "noticeBodyKn": { "type": "string" },
+        "noticeLevel": { "type": "string", "enum": ["info", "warning", "maintenance"] },
+        "homeBannerLabelEn": { "type": "string" },
+        "homeBannerLabelKn": { "type": "string" },
+        "extraCategories": { "type": "array" },
+        "expiryWarningDays": { "type": "integer" },
+        "showSampleDocs": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["familyId", "adminUid", "noticeActive", "noticeTitleEn", "noticeTitleKn", "noticeBodyEn", "noticeBodyKn", "noticeLevel", "homeBannerLabelEn", "homeBannerLabelKn", "extraCategories", "expiryWarningDays", "showSampleDocs", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
+    "/app_config/{configId}": {
+      "schema": { "$ref": "#/entities/CloudAppConfig" },
+      "description": "Global Spark-compatible live cloud content & supported config document (docId = live)."
+    },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserProfile" },
       "description": "Owner-only user profile and family vault pointer."
@@ -336,6 +383,10 @@
     "/families/{familyId}/secrets/{secretId}": {
       "schema": { "$ref": "#/entities/FamilyVaultSecret" },
       "description": "Member-only family AES-256 vault encryption key (docId = vault_key)."
+    },
+    "/families/{familyId}/config/{configId}": {
+      "schema": { "$ref": "#/entities/FamilyCloudConfig" },
+      "description": "Admin-managed family cloud config synced to members in real time (docId = live)."
     }
   }
 }

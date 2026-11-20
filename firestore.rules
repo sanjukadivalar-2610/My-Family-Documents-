@@ -134,6 +134,30 @@ service cloud.firestore {
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
+    function isValidFamilyCloudConfig(data) {
+      return data.familyId is string && isValidId(data.familyId) &&
+             data.adminUid is string && data.adminUid.size() >= 1 && data.adminUid.size() <= 128 &&
+             data.noticeActive is bool &&
+             data.noticeTitleEn is string && data.noticeTitleEn.size() <= 120 &&
+             data.noticeTitleKn is string && data.noticeTitleKn.size() <= 120 &&
+             data.noticeBodyEn is string && data.noticeBodyEn.size() <= 500 &&
+             data.noticeBodyKn is string && data.noticeBodyKn.size() <= 500 &&
+             data.noticeLevel in ['info', 'warning', 'maintenance'] &&
+             data.homeBannerLabelEn is string && data.homeBannerLabelEn.size() <= 160 &&
+             data.homeBannerLabelKn is string && data.homeBannerLabelKn.size() <= 160 &&
+             data.extraCategories is list && data.extraCategories.size() <= 15 &&
+             data.expiryWarningDays is int && data.expiryWarningDays >= 1 && data.expiryWarningDays <= 365 &&
+             data.showSampleDocs is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // --- Collection 0: /app_config/live (Read-only global cloud content for signed-in users) ---
+    match /app_config/{configId} {
+      allow get: if isSignedIn() && configId == 'live';
+      allow list, create, update, delete: if false;
+    }
+
     // --- Collection 1: /users/{userId} (Owner-only PII isolation) ---
     match /users/{userId} {
       allow get, list: if isSignedIn() && request.auth.uid == userId;
@@ -368,6 +392,45 @@ service cloud.firestore {
                          isValidId(familyId) &&
                          isValidId(docId) &&
                          (existing().adminUid == request.auth.uid || existing().uploadedByUid == request.auth.uid);
+      }
+
+      // --- Collection 6: /families/{familyId}/config/{configId} (Cloud-synced family config & categories) ---
+      match /config/{configId} {
+        allow get: if isSignedIn() &&
+                      isValidId(familyId) &&
+                      configId == 'live' &&
+                      isFamilyMember(familyId);
+
+        allow list: if false;
+
+        allow create: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         configId == 'live' &&
+                         isFamilyAdmin(familyId) &&
+                         incoming().familyId == familyId &&
+                         incoming().adminUid == familyDoc(familyId).data.adminUid &&
+                         incoming().keys().hasAll(['familyId', 'adminUid', 'noticeActive', 'noticeTitleEn', 'noticeTitleKn', 'noticeBodyEn', 'noticeBodyKn', 'noticeLevel', 'homeBannerLabelEn', 'homeBannerLabelKn', 'extraCategories', 'expiryWarningDays', 'showSampleDocs', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['familyId', 'adminUid', 'noticeActive', 'noticeTitleEn', 'noticeTitleKn', 'noticeBodyEn', 'noticeBodyKn', 'noticeLevel', 'homeBannerLabelEn', 'homeBannerLabelKn', 'extraCategories', 'expiryWarningDays', 'showSampleDocs', 'createdAt', 'updatedAt']) &&
+                         isValidFamilyCloudConfig(incoming());
+
+        allow update: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         configId == 'live' &&
+                         isValidFamilyCloudConfig(incoming()) &&
+                         incoming().familyId == existing().familyId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isFamilyAdmin(familyId) && (
+                           (incoming().adminUid == existing().adminUid &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['noticeActive', 'noticeTitleEn', 'noticeTitleKn', 'noticeBodyEn', 'noticeBodyKn', 'noticeLevel', 'homeBannerLabelEn', 'homeBannerLabelKn', 'extraCategories', 'expiryWarningDays', 'showSampleDocs', 'updatedAt'])) ||
+                           (incoming().adminUid in familyDoc(familyId).data.memberUids &&
+                            incoming().adminUid != existing().adminUid &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['adminUid', 'updatedAt']))
+                         );
+
+        allow delete: if isSignedIn() &&
+                         isValidId(familyId) &&
+                         configId == 'live' &&
+                         isFamilyAdmin(familyId);
       }
     }
 

@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.DocumentCategory
+import com.example.domain.model.EffectiveCloudConfig
 import com.example.domain.model.ExpiryStatus
 import com.example.domain.model.FamilyDocument
 import com.example.domain.model.SyncState
@@ -274,9 +275,12 @@ fun SyncStatusBadge(
 private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
 @Composable
-fun ExpiryStatusPill(document: FamilyDocument) {
+fun ExpiryStatusPill(
+    document: FamilyDocument,
+    warningDays: Long = 30L
+) {
     val strings = LocalAppStrings.current
-    val status = document.expiryStatus()
+    val status = document.expiryStatus(warningDays = warningDays)
     if (status == ExpiryStatus.NO_EXPIRY) return
     val (label, bg, fg, icon) = when (status) {
         ExpiryStatus.EXPIRED -> Quad(strings.expiredBadge, CrimsonSoft, CrimsonAlert, Icons.Rounded.WarningAmber)
@@ -313,10 +317,11 @@ fun ExpiryStatusPill(document: FamilyDocument) {
 fun DocumentCardItem(
     document: FamilyDocument,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig()
 ) {
     val strings = LocalAppStrings.current
-    val category = DocumentCategory.fromKey(document.category)
+    val category = cloudConfig.resolveCategoryOption(document.category)
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -409,7 +414,10 @@ fun DocumentCardItem(
                             )
                         }
                     }
-                    ExpiryStatusPill(document = document)
+                    ExpiryStatusPill(
+                        document = document,
+                        warningDays = cloudConfig.expiryWarningDays
+                    )
                     Icon(
                         imageVector = if (document.isBackedUp) Icons.Rounded.CloudDone else Icons.Rounded.CloudQueue,
                         contentDescription = if (document.isBackedUp) strings.cloudSyncedBadge else strings.localOnlyBadge,

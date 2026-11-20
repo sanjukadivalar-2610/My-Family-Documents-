@@ -2,6 +2,8 @@ package com.example.ui
 
 import android.app.Application
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -80,6 +82,9 @@ import com.example.data.firebase.FamilyVaultRepository
 import com.example.data.security.DocumentCryptoManager
 import com.example.data.security.SecurityPreferences
 import com.example.data.security.SecuritySettings
+import com.example.data.update.AppUpdateRepository
+import com.example.data.update.AppUpdateState
+import com.example.data.update.UpdatePhase
 import com.example.domain.model.UiState
 import com.example.localization.LocalAppStrings
 import com.example.localization.stringsForLanguage
@@ -102,6 +107,7 @@ import com.example.ui.screens.DocumentsScreen
 import com.example.ui.screens.FamilyScreen
 import com.example.ui.screens.HomeDashboardScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.UpdateScreen
 import com.example.ui.theme.NavyPrimary
 import com.example.ui.theme.SkyAccent
 import com.example.ui.theme.SkySoft
@@ -170,6 +176,71 @@ fun MyFamilyDocApp(
                 }
             }
         )
+    }
+
+    val appUpdateRepository = remember(context.applicationContext) {
+        AppUpdateRepository(context.applicationContext)
+    }
+    val updateState by appUpdateRepository.state.collectAsStateWithLifecycle()
+
+    LaunchedEffect(appUpdateRepository) {
+        appUpdateRepository.checkForUpdates()
+    }
+
+    val packageInstallerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        appUpdateRepository.markInstallCanceledOrReturned()
+    }
+
+    val installPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        appUpdateRepository.refreshInstallPermissionState()
+        val readyFile = appUpdateRepository.state.value.verifiedApkFile
+        if (readyFile != null && appUpdateRepository.canRequestPackageInstalls()) {
+            runCatching {
+                appUpdateRepository.markInstallingStarted()
+                packageInstallerLauncher.launch(appUpdateRepository.buildPackageInstallerIntent(readyFile))
+            }.onFailure { err ->
+                appUpdateRepository.markInstallLaunchFailed(
+                    err.localizedMessage ?: "Unable to launch Android Package Installer."
+                )
+            }
+        }
+    }
+
+    fun launchVerifiedApkInstaller(apkFile: java.io.File) {
+        if (!appUpdateRepository.canRequestPackageInstalls()) {
+            appUpdateRepository.refreshInstallPermissionState()
+            runCatching {
+                installPermissionLauncher.launch(appUpdateRepository.buildInstallUnknownSourcesSettingsIntent())
+            }.onFailure { err ->
+                appUpdateRepository.markInstallLaunchFailed(
+                    err.localizedMessage ?: "Unable to open install permission settings."
+                )
+            }
+            return
+        }
+        runCatching {
+            appUpdateRepository.markInstallingStarted()
+            packageInstallerLauncher.launch(appUpdateRepository.buildPackageInstallerIntent(apkFile))
+        }.onFailure { err ->
+            appUpdateRepository.markInstallLaunchFailed(
+                err.localizedMessage ?: "Unable to launch Android Package Installer."
+            )
+        }
+    }
+
+    fun startAppUpdateDownloadAndInstall() {
+        scope.launch {
+            val result = appUpdateRepository.downloadAndVerifyLatestApk()
+            result.getOrNull()?.let { verifiedFile ->
+                if (appUpdateRepository.canRequestPackageInstalls()) {
+                    launchVerifiedApkInstaller(verifiedFile)
+                }
+            }
+        }
     }
 
     fun launchAccountDeletion(
@@ -296,6 +367,22 @@ fun MyFamilyDocApp(
                             credentialManager = credentialManager,
                             scope = scope
                         )
+                    },
+                    updateState = updateState,
+                    onCheckForUpdates = { scope.launch { appUpdateRepository.checkForUpdates() } },
+                    onStartDownloadAndInstall = ::startAppUpdateDownloadAndInstall,
+                    onCancelDownload = { appUpdateRepository.cancelActiveDownload() },
+                    onLaunchVerifiedInstaller = ::launchVerifiedApkInstaller,
+                    onRequestInstallPermission = {
+                        runCatching {
+                            installPermissionLauncher.launch(
+                                appUpdateRepository.buildInstallUnknownSourcesSettingsIntent()
+                            )
+                        }.onFailure { err ->
+                            appUpdateRepository.markInstallLaunchFailed(
+                                err.localizedMessage ?: "Unable to open install permission settings."
+                            )
+                        }
                     }
                 )
             }
@@ -393,7 +480,13 @@ private fun AuthenticatedVaultShell(
     accountAuthRepository: AccountAuthRepository,
     credentialManager: CredentialManager,
     onRequestDeleteAccount: (AdminDeleteAction, String?) -> Unit,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    updateState: AppUpdateState,
+    onCheckForUpdates: () -> Unit,
+    onStartDownloadAndInstall: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onLaunchVerifiedInstaller: (java.io.File) -> Unit,
+    onRequestInstallPermission: () -> Unit
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as Application
@@ -422,6 +515,7 @@ private fun AuthenticatedVaultShell(
     val familyMembers by viewModel.familyMembers.collectAsStateWithLifecycle()
     val documentsState by viewModel.documentsState.collectAsStateWithLifecycle()
     val backupStatus by viewModel.backupStatus.collectAsStateWithLifecycle()
+    val effectiveCloudConfig by viewModel.effectiveCloudConfig.collectAsStateWithLifecycle()
     val settings by viewModel.securitySettings.collectAsStateWithLifecycle()
     val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsStateWithLifecycle()
     val isActionBusy by viewModel.isActionBusy.collectAsStateWithLifecycle()
@@ -441,6 +535,7 @@ private fun AuthenticatedVaultShell(
     var selectedDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
     var showCameraScanner by rememberSaveable { mutableStateOf(false) }
     var showAdminPanel by rememberSaveable { mutableStateOf(false) }
+    var showUpdateScreen by rememberSaveable { mutableStateOf(false) }
     var showPinSetup by rememberSaveable { mutableStateOf(false) }
     var openAddMemberInitially by rememberSaveable { mutableStateOf(false) }
     var openUploadDocInitially by rememberSaveable { mutableStateOf(false) }
@@ -584,7 +679,48 @@ private fun AuthenticatedVaultShell(
                             viewModel.updateDocumentPermissions(doc, allowed, strings.permissionsSaved)
                         },
                         onDeleteDocument = viewModel::deleteDocument,
-                        onBack = { selectedDocumentId = null }
+                        onBack = { selectedDocumentId = null },
+                        cloudConfig = effectiveCloudConfig
+                    )
+                    SnackbarHost(
+                        hostState = snackbarHostState,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(16.dp)
+                    )
+                }
+                return
+            }
+
+            if (showUpdateScreen) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    UpdateScreen(
+                        updateState = updateState,
+                        cloudConfig = effectiveCloudConfig,
+                        isAdmin = isAdmin,
+                        checkOnOpen = true,
+                        onCheckForUpdates = onCheckForUpdates,
+                        onStartDownloadAndInstall = onStartDownloadAndInstall,
+                        onCancelDownload = onCancelDownload,
+                        onLaunchVerifiedInstaller = onLaunchVerifiedInstaller,
+                        onRequestInstallPermission = onRequestInstallPermission,
+                        onSaveFamilyCloudConfig = { noticeActive, titleEn, titleKn, bodyEn, bodyKn, level, bannerEn, bannerKn, categories, expiryDays, showSamples ->
+                            viewModel.saveFamilyCloudConfig(
+                                noticeActive = noticeActive,
+                                noticeTitleEn = titleEn,
+                                noticeTitleKn = titleKn,
+                                noticeBodyEn = bodyEn,
+                                noticeBodyKn = bodyKn,
+                                noticeLevel = level,
+                                homeBannerLabelEn = bannerEn,
+                                homeBannerLabelKn = bannerKn,
+                                extraCategories = categories,
+                                expiryWarningDays = expiryDays,
+                                showSampleDocs = showSamples,
+                                savedMessage = strings.cloudConfigSavedMsg
+                            )
+                        },
+                        onBack = { showUpdateScreen = false }
                     )
                     SnackbarHost(
                         hostState = snackbarHostState,
@@ -662,7 +798,16 @@ private fun AuthenticatedVaultShell(
                                     onOpenBackup = { currentTab = VaultTab.BACKUP },
                                     onOpenAdminPanel = { showAdminPanel = true },
                                     onOpenDocumentDetail = { doc -> selectedDocumentId = doc.id },
-                                    onShowMessage = { msg -> shellScope.launch { snackbarHostState.showSnackbar(msg) } }
+                                    onShowMessage = { msg -> shellScope.launch { snackbarHostState.showSnackbar(msg) } },
+                                    updateState = updateState,
+                                    cloudConfig = effectiveCloudConfig,
+                                    onOpenUpdates = { showUpdateScreen = true },
+                                    onStartAppUpdate = {
+                                        showUpdateScreen = true
+                                        if (updateState.phase != UpdatePhase.DOWNLOADING) {
+                                            onStartDownloadAndInstall()
+                                        }
+                                    }
                                 )
                             }
 
@@ -710,7 +855,8 @@ private fun AuthenticatedVaultShell(
                                             issueDateMillis = issueMs,
                                             expiryDateMillis = expiryMs
                                         )
-                                    }
+                                    },
+                                    cloudConfig = effectiveCloudConfig
                                 )
                             }
 
@@ -806,7 +952,10 @@ private fun AuthenticatedVaultShell(
                                     onOpenBackupCenter = { currentTab = VaultTab.BACKUP },
                                     onOpenAdminPanel = { showAdminPanel = true },
                                     onLogout = onSignOut,
-                                    onConfirmDeleteAccount = onRequestDeleteAccount
+                                    onConfirmDeleteAccount = onRequestDeleteAccount,
+                                    hasUpdateAvailable = updateState.hasUpdate,
+                                    installedVersionLabel = "v${updateState.installedVersionName} (${updateState.installedVersionCode})",
+                                    onOpenUpdates = { showUpdateScreen = true }
                                 )
                             }
                         }

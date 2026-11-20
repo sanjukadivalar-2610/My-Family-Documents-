@@ -82,7 +82,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
-import com.example.domain.model.DocumentCategory
+import com.example.domain.model.EffectiveCloudConfig
 import com.example.domain.model.FamilyDocument
 import com.example.domain.model.FamilyMember
 import com.example.localization.LocalAppStrings
@@ -108,7 +108,8 @@ fun DocumentDetailScreen(
     onRenameAndUpdateDates: (FamilyDocument, String, Long, Long, String?, String?) -> Unit,
     onUpdatePermissions: (FamilyDocument, List<String>) -> Unit,
     onDeleteDocument: (FamilyDocument) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig()
 ) {
     val strings = LocalAppStrings.current
     val context = LocalContext.current
@@ -146,7 +147,7 @@ fun DocumentDetailScreen(
         isLoadingPreview = false
     }
 
-    val category = DocumentCategory.fromKey(document.category)
+    val category = cloudConfig.resolveCategoryOption(document.category)
 
     Scaffold(
         topBar = {
@@ -216,7 +217,10 @@ fun DocumentDetailScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
-                        ExpiryStatusPill(document = document)
+                        ExpiryStatusPill(
+                            document = document,
+                            warningDays = cloudConfig.expiryWarningDays
+                        )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -406,6 +410,7 @@ fun DocumentDetailScreen(
     if (showRenameDialog) {
         RenameAndDatesDialog(
             document = document,
+            cloudConfig = cloudConfig,
             onDismiss = { showRenameDialog = false },
             onSave = { newTitle, issueMs, expiryMs, newNotes, newCategory ->
                 onRenameAndUpdateDates(document, newTitle, issueMs, expiryMs, newNotes, newCategory)
@@ -467,13 +472,15 @@ private fun MetaRow(label: String, value: String) {
 @Composable
 private fun RenameAndDatesDialog(
     document: FamilyDocument,
+    cloudConfig: EffectiveCloudConfig,
     onDismiss: () -> Unit,
     onSave: (String, Long, Long, String?, String) -> Unit
 ) {
     val strings = LocalAppStrings.current
+    val categoryOptions = remember(cloudConfig) { cloudConfig.allCategoryOptions() }
     var title by remember(document) { mutableStateOf(document.title) }
-    var selectedCategory by remember(document) {
-        mutableStateOf(DocumentCategory.fromKey(document.category))
+    var selectedCategory by remember(document, cloudConfig) {
+        mutableStateOf(cloudConfig.resolveCategoryOption(document.category))
     }
     var categoryExpanded by remember { mutableStateOf(false) }
     var notes by remember(document) { mutableStateOf(document.notes.orEmpty()) }
@@ -512,7 +519,7 @@ private fun RenameAndDatesDialog(
                         expanded = categoryExpanded,
                         onDismissRequest = { categoryExpanded = false }
                     ) {
-                        DocumentCategory.entries.forEach { cat ->
+                        categoryOptions.forEach { cat ->
                             DropdownMenuItem(
                                 text = { Text(cat.localizedLabel(strings.languageCode)) },
                                 leadingIcon = { Icon(cat.icon, contentDescription = null) },

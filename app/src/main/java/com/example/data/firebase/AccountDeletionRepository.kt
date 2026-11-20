@@ -641,6 +641,28 @@ class AccountDeletionRepository(
             return
         }
 
+        // 5b. Delete family cloud config if present
+        val configRef = famRef.collection("config").document("live")
+        try {
+            val configSnap = configRef.get(Source.SERVER).await()
+            if (configSnap.exists()) {
+                configRef.delete().await()
+                completedSteps.add("Delete family cloud config")
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, configRef.path, auth)
+            pendingSteps.add(
+                PendingCleanupStep(
+                    stepId = "family_cloud_config",
+                    label = "Delete family cloud configuration",
+                    detail = e.localizedMessage ?: "Failed to delete family cloud config."
+                )
+            )
+            return
+        }
+
         // 6. Delete family invite code record
         if (family.familyCode.isNotBlank()) {
             val inviteRef = db.collection("family_invites").document(family.familyCode)
@@ -779,6 +801,32 @@ class AccountDeletionRepository(
                     stepId = "transfer_vault_key",
                     label = "Transfer family encryption secret ownership",
                     detail = e.localizedMessage ?: "Failed to update vault_key ownership."
+                )
+            )
+            return
+        }
+
+        // 1b. Transfer config/live adminUid if present
+        val configRef = famRef.collection("config").document("live")
+        try {
+            val configSnap = configRef.get(Source.SERVER).await()
+            if (configSnap.exists()) {
+                configRef.update(
+                    mapOf(
+                        "adminUid" to newAdminUid,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, configRef.path, auth)
+            pendingSteps.add(
+                PendingCleanupStep(
+                    stepId = "transfer_cloud_config",
+                    label = "Transfer family cloud config ownership",
+                    detail = e.localizedMessage ?: "Failed to update cloud config ownership."
                 )
             )
             return

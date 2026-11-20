@@ -524,4 +524,100 @@ test("Admin can safely transfer ownership to an existing family member, and cann
   );
 });
 
+test("Global /app_config/live allows authenticated get and blocks unauthenticated reads and client writes", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.collection("app_config").doc("live").set({
+      configVersion: 2,
+      noticeActive: true,
+      noticeTitleEn: "Holiday Hours",
+      noticeTitleKn: "ರಜಾ ಸೂಚನೆ",
+      noticeBodyEn: "Sync service is operating normally.",
+      noticeBodyKn: "ಸಿಂಕ್ ಸೇವೆ ಸಾಮಾನ್ಯವಾಗಿ ಕಾರ್ಯನಿರ್ವಹಿಸುತ್ತಿದೆ.",
+      noticeLevel: "info",
+      homeBannerLabelEn: "Verified Family Docs",
+      homeBannerLabelKn: "ದೃಢೀಕೃತ ಕುಟುಂಬ ದಾಖಲೆಗಳು",
+      extraCategories: [{ key: "Insurance Policy", labelEn: "Insurance Policy", labelKn: "ವಿಮಾ ಪಾಲಿಸಿ" }],
+      expiryWarningDays: 45,
+      showSampleDocs: true,
+      minRecommendedVersionCode: 1,
+    });
+  });
+
+  const anonDb = testEnv.unauthenticatedContext().firestore();
+  const memberDb = testEnv.authenticatedContext(MEMBER_UID).firestore();
+
+  await assertFails(anonDb.collection("app_config").doc("live").get());
+  await assertSucceeds(memberDb.collection("app_config").doc("live").get());
+  await assertFails(memberDb.collection("app_config").get());
+  await assertFails(
+    memberDb.collection("app_config").doc("live").set({
+      noticeActive: true,
+      noticeTitleEn: "Spoofed",
+    })
+  );
+});
+
+test("Family /families/{familyId}/config/live allows Admin write and member read, rejects member/outsider writes", async () => {
+  await seedFamilyWithMemberAndDocs();
+  const now = new Date();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID).firestore();
+  const memberDb = testEnv.authenticatedContext(MEMBER_UID).firestore();
+  const outsiderDb = testEnv.authenticatedContext(OUTSIDER_UID).firestore();
+
+  const validConfigPayload = {
+    familyId: "fam_1",
+    adminUid: ADMIN_UID,
+    noticeActive: true,
+    noticeTitleEn: "Passport Renewal Reminder",
+    noticeTitleKn: "ಪಾಸ್‌ಪೋರ್ಟ್ ನವೀಕರಣ",
+    noticeBodyEn: "Please renew before June.",
+    noticeBodyKn: "ಜೂನ್ ಮೊದಲು ನವೀಕರಿಸಿ.",
+    noticeLevel: "warning",
+    homeBannerLabelEn: "Sharma Family Vault",
+    homeBannerLabelKn: "ಶರ್ಮಾ ಕುಟುಂಬ ವಾಲ್ಟ್",
+    extraCategories: [{ key: "Insurance Policy", labelEn: "Insurance Policy", labelKn: "ವಿಮಾ ಪಾಲಿಸಿ" }],
+    expiryWarningDays: 45,
+    showSampleDocs: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // Non-admin member cannot create or write family config
+  await assertFails(
+    memberDb.collection("families").doc("fam_1").collection("config").doc("live").set(validConfigPayload)
+  );
+  // Outsider cannot read or write family config
+  await assertFails(
+    outsiderDb.collection("families").doc("fam_1").collection("config").doc("live").get()
+  );
+
+  // Admin can create and update family cloud config
+  await assertSucceeds(
+    adminDb.collection("families").doc("fam_1").collection("config").doc("live").set(validConfigPayload)
+  );
+  // Family member can read synced family config
+  await assertSucceeds(
+    memberDb.collection("families").doc("fam_1").collection("config").doc("live").get()
+  );
+
+  // Admin can update categories/notices/settings cleanly without changing createdAt
+  await assertSucceeds(
+    adminDb.collection("families").doc("fam_1").collection("config").doc("live").update({
+      expiryWarningDays: 60,
+      noticeBodyEn: "Updated without APK rebuild!",
+      updatedAt: now,
+    })
+  );
+
+  // Non-admin member still cannot overwrite synced config
+  await assertFails(
+    memberDb.collection("families").doc("fam_1").collection("config").doc("live").update({
+      expiryWarningDays: 10,
+      updatedAt: now,
+    })
+  );
+});
+
+
 

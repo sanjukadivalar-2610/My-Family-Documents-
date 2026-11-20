@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockReset
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Policy
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.foundation.rememberScrollState
@@ -114,7 +115,10 @@ fun SettingsScreen(
     onOpenBackupCenter: () -> Unit,
     onOpenAdminPanel: () -> Unit,
     onLogout: () -> Unit,
-    onConfirmDeleteAccount: (AdminDeleteAction, String?) -> Unit = { _, _ -> }
+    onConfirmDeleteAccount: (AdminDeleteAction, String?) -> Unit = { _, _ -> },
+    hasUpdateAvailable: Boolean = false,
+    installedVersionLabel: String = "v1.0 (1)",
+    onOpenUpdates: () -> Unit = {}
 ) {
     val strings = LocalAppStrings.current
     val context = LocalContext.current
@@ -526,6 +530,17 @@ fun SettingsScreen(
                         ) {
                             Text(strings.checkExpiriesNow)
                         }
+
+                        HorizontalDivider()
+
+                        SettingsLinkRow(
+                            icon = Icons.Rounded.SystemUpdate,
+                            label = strings.settingsUpdatesLink,
+                            tag = "settings_updates_link",
+                            badgeText = if (hasUpdateAvailable) strings.newUpdateAvailableTitle else installedVersionLabel,
+                            highlightBadge = hasUpdateAvailable,
+                            onClick = onOpenUpdates
+                        )
 
                         HorizontalDivider()
 
@@ -1038,6 +1053,8 @@ private fun SettingsLinkRow(
     icon: ImageVector,
     label: String,
     tag: String,
+    badgeText: String? = null,
+    highlightBadge: Boolean = false,
     onClick: () -> Unit
 ) {
     Row(
@@ -1049,7 +1066,7 @@ private fun SettingsLinkRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.width(10.dp))
             Text(
@@ -1058,10 +1075,26 @@ private fun SettingsLinkRow(
                 fontWeight = FontWeight.Medium
             )
         }
-        Icon(
-            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (!badgeText.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = if (highlightBadge) SkyAccent else SkySoft
+                ) {
+                    Text(
+                        text = badgeText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NavyPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }

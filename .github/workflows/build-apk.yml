@@ -1,10 +1,17 @@
-name: Build My Family Doc Debug APK
+name: Build & Publish My Family Doc Release
 
 on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      release_notes:
+        description: "Release notes shown in the app Update screen"
+        required: false
+        default: "Updated My Family Doc release with improvements and fixes."
 
 permissions:
   contents: write
@@ -14,8 +21,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-debug-apk:
-    name: Build Debug APK
+  build-and-publish-release:
+    name: Build Signed APK & Publish version.json
     runs-on: ubuntu-latest
 
     steps:
@@ -45,11 +52,8 @@ jobs:
           printf "\n84831b9409646a918e30573bab4c9c91346d8abd\n" > "$SDK_ROOT/licenses/android-sdk-preview-license"
           SDK_MGR="$(command -v sdkmanager || find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)"
           if [ -n "$SDK_MGR" ] && [ -x "$SDK_MGR" ]; then
-            echo "Using sdkmanager: $SDK_MGR"
             yes | "$SDK_MGR" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
             "$SDK_MGR" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-36" "platforms;android-36.1" "build-tools;36.0.0" || true
-          else
-            echo "Using preinstalled Android SDK at $SDK_ROOT"
           fi
 
       - name: Set up Gradle 9.3.1
@@ -57,119 +61,200 @@ jobs:
         with:
           gradle-version: "9.3.1"
 
-      - name: Prepare debug.keystore securely
+      - name: Restore consistent signing keystore (without exposing key material)
         env:
           DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
+          set -euo pipefail
           if [ -n "$DEBUG_KEYSTORE_B64" ]; then
-            echo "$DEBUG_KEYSTORE_B64" | tr -d '\r\n ' | base64 -d > debug.keystore
-            echo "Prepared debug.keystore from GitHub Secret."
+            printf '%s' "$DEBUG_KEYSTORE_B64" | tr -d '\r\n ' | base64 -d > debug.keystore
+            echo "Restored debug.keystore from GitHub secret DEBUG_KEYSTORE_BASE64."
           elif [ -f debug.keystore ]; then
             echo "Using existing debug.keystore."
           elif [ -f debug.keystore.base64 ]; then
             tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore
-            echo "Prepared debug.keystore from debug.keystore.base64."
+            echo "Restored debug.keystore from repository debug.keystore.base64."
           else
-            echo "Generating fallback Android debug keystore..."
-            keytool -genkeypair -v \
-              -keystore debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
+            echo "::error::Signing keystore missing! Configure DEBUG_KEYSTORE_BASE64 secret so updates preserve app data."
+            exit 1
           fi
-          ls -lh debug.keystore
-          keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey | grep -E "SHA1:|SHA256:" || true
-          APK_SHA1="$(keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey 2>/dev/null | sed -n 's/.*SHA1: //p' | head -n 1)"
-          echo "APK_SHA1=${APK_SHA1:-unknown}" >> "$GITHUB_ENV"
+          chmod 600 debug.keystore
 
-      - name: Prepare app/google-services.json securely
+      - name: Restore app/google-services.json securely
         env:
           GOOGLE_SERVICES_RAW: ${{ secrets.GOOGLE_SERVICES_JSON }}
           GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
           if [ -f app/google-services.json ]; then
-            echo "Using app/google-services.json from repository."
+            echo "Using existing app/google-services.json."
           elif [ -n "$GOOGLE_SERVICES_RAW" ]; then
             printf '%s\n' "$GOOGLE_SERVICES_RAW" > app/google-services.json
-            echo "Prepared app/google-services.json from GOOGLE_SERVICES_JSON secret."
+            echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON secret."
           elif [ -n "$GOOGLE_SERVICES_B64" ]; then
-            echo "$GOOGLE_SERVICES_B64" | tr -d '\r\n ' | base64 -d > app/google-services.json
-            echo "Prepared app/google-services.json from GOOGLE_SERVICES_JSON_BASE64 secret."
+            printf '%s' "$GOOGLE_SERVICES_B64" | tr -d '\r\n ' | base64 -d > app/google-services.json
+            echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON_BASE64 secret."
           else
-            echo "::error::app/google-services.json is missing! AI Studio excludes it on Push to GitHub. Add the contents of app/google-services.json as a GitHub Repository Secret named GOOGLE_SERVICES_JSON."
+            echo "::error::app/google-services.json is missing! Add GOOGLE_SERVICES_JSON as a GitHub Repository Secret."
             exit 1
           fi
 
-      - name: Build Debug APK
+      - name: Build Signed APK
         run: |
           if [ -f gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
             chmod +x gradlew
             ./gradlew :app:assembleDebug --stacktrace --console=plain
           else
-            echo "Wrapper jar not present; building with setup-gradle 9.3.1..."
             gradle :app:assembleDebug --stacktrace --console=plain
           fi
 
-      - name: Stage APK in artifacts folder
-        if: success()
+      - name: Verify Package ID, Signing Cert, Version Bump & Generate version.json
+        env:
+          INPUT_NOTES: ${{ github.event.inputs.release_notes }}
         run: |
+          set -euo pipefail
           mkdir -p artifacts
           cp app/build/outputs/apk/debug/app-debug.apk artifacts/app-debug.apk
-          if [ -f app/build/outputs/apk/debug/output-metadata.json ]; then
-            cp app/build/outputs/apk/debug/output-metadata.json artifacts/output-metadata.json
-          fi
-          ls -lh artifacts/
+          cp app/build/outputs/apk/debug/output-metadata.json artifacts/output-metadata.json
 
-      - name: Upload Debug APK to GitHub Actions Artifacts
-        if: success()
+          python3 - <<'PY'
+          import hashlib, json, os, re, subprocess, sys, urllib.request
+          from datetime import datetime, timezone
+
+          with open("artifacts/output-metadata.json", "r", encoding="utf-8") as f:
+              meta = json.load(f)
+
+          pkg_id = meta.get("applicationId", "")
+          if pkg_id != "com.aistudio.myfamilydoc.k7m2px":
+              print(f"::error::Unexpected applicationId '{pkg_id}'. Keep 'com.aistudio.myfamilydoc.k7m2px' so existing data stays intact.")
+              sys.exit(1)
+
+          elem = (meta.get("elements") or [{}])[0]
+          version_code = int(elem.get("versionCode", 0))
+          version_name = str(elem.get("versionName", "")).strip()
+          if version_code < 1 or not version_name:
+              print("::error::Invalid versionCode/versionName in output-metadata.json")
+              sys.exit(1)
+
+          # Extract public SHA-256 certificate fingerprint from built APK (never prints private key)
+          cert_out = subprocess.check_output(
+              ["keytool", "-printcert", "-jarfile", "artifacts/app-debug.apk"],
+              text=True,
+              stderr=subprocess.STDOUT,
+          )
+          m_sha256 = re.search(r"SHA256:\s*([0-9A-Fa-f:]+)", cert_out)
+          if not m_sha256:
+              print("::error::Unable to verify APK public signing certificate.")
+              sys.exit(1)
+          signing_sha256 = m_sha256.group(1).replace(":", "").upper()
+
+          # Compute APK SHA-256 checksum
+          h = hashlib.sha256()
+          with open("artifacts/app-debug.apk", "rb") as f:
+              for chunk in iter(lambda: f.read(65536), b""):
+                  h.update(chunk)
+          apk_sha256 = h.hexdigest().lower()
+
+          repo = os.environ.get("GITHUB_REPOSITORY", "sanjukadivalar-2610/My-Family-Doc")
+          server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+          prev_url = f"{server}/{repo}/releases/download/debug-latest/version.json"
+
+          prev_code = 0
+          prev_cert = ""
+          try:
+              req = urllib.request.Request(prev_url, headers={"Cache-Control": "no-cache"})
+              with urllib.request.urlopen(req, timeout=10) as resp:
+                  prev_json = json.loads(resp.read().decode("utf-8"))
+                  prev_code = int(prev_json.get("versionCode", 0))
+                  prev_cert = str(prev_json.get("signingCertSha256", "")).replace(":", "").upper()
+          except Exception as exc:
+              print(f"No prior published version.json found ({exc}); proceeding with initial manifest.")
+
+          if prev_cert and prev_cert != signing_sha256:
+              print(f"::error::Signing certificate mismatch! Published={prev_cert}, Built={signing_sha256}. Refusing to overwrite release with a differently signed APK.")
+              sys.exit(1)
+
+          ref = os.environ.get("GITHUB_REF", "")
+          if ref.startswith("refs/tags/v") and prev_code > 0 and version_code <= prev_code:
+              print(f"::error::Release tag {ref} requires bumped versionCode (current={version_code}, already published={prev_code}). Increment versionCode in app/build.gradle.kts.")
+              sys.exit(1)
+          elif prev_code > 0 and version_code <= prev_code:
+              print(f"::warning::versionCode ({version_code}) is not higher than published versionCode ({prev_code}). Existing users will NOT see an UPDATE button until you increment versionCode.")
+
+          release_notes = os.environ.get("INPUT_NOTES", "").strip()
+          if not release_notes and os.path.exists("version.json"):
+              try:
+                  with open("version.json", "r", encoding="utf-8") as vf:
+                      release_notes = str(json.load(vf).get("releaseNotes", "")).strip()
+              except Exception:
+                  pass
+          if not release_notes:
+              release_notes = f"My Family Doc v{version_name} (Build {version_code})."
+
+          manifest = {
+              "versionCode": version_code,
+              "versionName": version_name,
+              "packageId": pkg_id,
+              "apkUrl": f"{server}/{repo}/releases/download/debug-latest/app-debug.apk",
+              "apkSha256": apk_sha256,
+              "signingCertSha256": signing_sha256,
+              "releaseNotes": release_notes,
+              "mandatory": False,
+              "publishedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+          }
+          with open("artifacts/version.json", "w", encoding="utf-8") as out:
+              json.dump(manifest, out, indent=2)
+              out.write("\n")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as envf:
+              envf.write(f"OUT_VERSION_CODE={version_code}\n")
+              envf.write(f"OUT_VERSION_NAME={version_name}\n")
+              envf.write(f"OUT_APK_SHA256={apk_sha256}\n")
+              envf.write(f"OUT_CERT_SHA256={signing_sha256}\n")
+          PY
+
+      - name: Upload APK & version.json to Actions Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: artifacts/
+          name: app-debug-release
+          path: |
+            artifacts/app-debug.apk
+            artifacts/version.json
+            artifacts/output-metadata.json
           retention-days: 30
           if-no-files-found: error
 
-      - name: Upload build logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-failure-logs
-          path: app/build/outputs/logs/
-          retention-days: 7
-          if-no-files-found: ignore
-
-      - name: Publish latest Debug APK to GitHub Release
-        id: publish_release
-        if: success()
-        continue-on-error: true
+      - name: Publish APK & version.json to GitHub Release (debug-latest)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: debug-latest
-          name: My Family Doc Debug APK (Latest)
+          name: My Family Doc v${{ env.OUT_VERSION_NAME }} (Build ${{ env.OUT_VERSION_CODE }})
           body: |
-            Latest automated Debug APK build for **My Family Doc** (`com.aistudio.myfamilydoc.k7m2px`).
+            Automated signed release for **My Family Doc** (`com.aistudio.myfamilydoc.k7m2px`).
 
-            - **Direct APK Download:** `${{ github.server_url }}/${{ github.repository }}/releases/download/debug-latest/app-debug.apk`
-            - **Build #:** `${{ github.run_number }}`
-            - **Commit:** `${{ github.sha }}`
-          files: artifacts/app-debug.apk
+            - **Version:** `v${{ env.OUT_VERSION_NAME }}` (`versionCode=${{ env.OUT_VERSION_CODE }}`)
+            - **Direct APK URL:** `${{ github.server_url }}/${{ github.repository }}/releases/download/debug-latest/app-debug.apk`
+            - **Version Manifest URL:** `${{ github.server_url }}/${{ github.repository }}/releases/download/debug-latest/version.json`
+            - **APK SHA-256:** `${{ env.OUT_APK_SHA256 }}`
+          files: |
+            artifacts/app-debug.apk
+            artifacts/version.json
           prerelease: true
-          make_latest: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Write direct download links to workflow summary
-        if: success()
-        run: |
-          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
-          ## My Family Doc — Debug APK Ready
+      - name: Also publish tagged version release when pushed via v* tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: My Family Doc ${{ github.ref_name }} (Build ${{ env.OUT_VERSION_CODE }})
+          files: |
+            artifacts/app-debug.apk
+            artifacts/version.json
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-          - **Actions Artifact (`app-debug-apk`):** [Download from this Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          - **Direct APK Link (Latest Release):** ${{ github.server_url }}/${{ github.repository }}/releases/download/debug-latest/app-debug.apk
-          - **Release Page:** ${{ github.server_url }}/${{ github.repository }}/releases/tag/debug-latest
-          - **APK Signing SHA-1 (Register in Firebase Console if Google Sign-In fails):** `${{ env.APK_SHA1 }}`
-          EOF
+      - name: Remove temporary keystore from runner
+        if: always()
+        run: rm -f debug.keystore app/google-services.json

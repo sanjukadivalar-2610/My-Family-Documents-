@@ -12,6 +12,7 @@ import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.firebase.CloudConfigRepository
 import com.example.data.firebase.FamilyVaultRepository
 import com.example.data.sample.SampleDocumentFactory
 import com.example.data.security.DocumentCryptoManager
@@ -19,6 +20,8 @@ import com.example.data.security.SecurityPreferences
 import com.example.data.security.SecuritySettings
 import com.example.data.security.ThemeMode
 import com.example.domain.model.BackupStatusInfo
+import com.example.domain.model.CloudCategoryItem
+import com.example.domain.model.EffectiveCloudConfig
 import com.example.domain.model.FamilyAccount
 import com.example.domain.model.FamilyDocument
 import com.example.domain.model.FamilyMember
@@ -56,7 +59,8 @@ class MainViewModel(
     private val cryptoManager: DocumentCryptoManager,
     private val securityPreferences: SecurityPreferences,
     private val appContext: Context,
-    val currentUserId: String
+    val currentUserId: String,
+    private val cloudConfigRepository: CloudConfigRepository = CloudConfigRepository(appContext)
 ) : ViewModel() {
 
     private val _isActionBusy = MutableStateFlow(false)
@@ -149,6 +153,18 @@ class MainViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
             initialValue = UiState.Loading
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val effectiveCloudConfig: StateFlow<EffectiveCloudConfig> = familyAccount
+        .flatMapLatest { family ->
+            cloudConfigRepository.observeEffectiveCloudConfig(family?.familyId.orEmpty())
+                .catch { emit(EffectiveCloudConfig()) }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
+            initialValue = EffectiveCloudConfig()
         )
 
     val backupStatus: StateFlow<BackupStatusInfo> = combine(
@@ -889,6 +905,46 @@ class MainViewModel(
             }
             _isSyncing.value = false
             _statusMessage.value = "$completedMsg ($restored)"
+        }
+    }
+
+    fun saveFamilyCloudConfig(
+        noticeActive: Boolean,
+        noticeTitleEn: String,
+        noticeTitleKn: String,
+        noticeBodyEn: String,
+        noticeBodyKn: String,
+        noticeLevel: String,
+        homeBannerLabelEn: String,
+        homeBannerLabelKn: String,
+        extraCategories: List<CloudCategoryItem>,
+        expiryWarningDays: Long,
+        showSampleDocs: Boolean,
+        savedMessage: String
+    ) {
+        val family = familyAccount.value ?: return
+        if (family.adminUid != currentUserId) return
+        viewModelScope.launch {
+            _isActionBusy.value = true
+            cloudConfigRepository.saveFamilyCloudConfig(
+                familyId = family.familyId,
+                noticeActive = noticeActive,
+                noticeTitleEn = noticeTitleEn,
+                noticeTitleKn = noticeTitleKn,
+                noticeBodyEn = noticeBodyEn,
+                noticeBodyKn = noticeBodyKn,
+                noticeLevel = noticeLevel,
+                homeBannerLabelEn = homeBannerLabelEn,
+                homeBannerLabelKn = homeBannerLabelKn,
+                extraCategories = extraCategories,
+                expiryWarningDays = expiryWarningDays,
+                showSampleDocs = showSampleDocs
+            ).onSuccess {
+                _statusMessage.value = savedMessage
+            }.onFailure { err ->
+                _statusMessage.value = err.localizedMessage ?: "Failed to update cloud configuration."
+            }
+            _isActionBusy.value = false
         }
     }
 
