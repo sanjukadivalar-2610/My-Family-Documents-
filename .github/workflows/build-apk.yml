@@ -1,4 +1,4 @@
-name: Build & Publish My Family Doc Release
+name: Build & Publish FAMVIORA Release
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
       release_notes:
         description: "Release notes shown in the app Update screen"
         required: false
-        default: "Updated My Family Doc release with improvements and fixes."
+        default: "Updated FAMVIORA release with improvements and fixes."
 
 permissions:
   contents: write
@@ -117,7 +117,7 @@ jobs:
           cp app/build/outputs/apk/debug/output-metadata.json artifacts/output-metadata.json
 
           python3 - <<'PY'
-          import hashlib, json, os, re, subprocess, sys, urllib.request
+          import glob, hashlib, json, os, re, shutil, subprocess, sys, urllib.request
           from datetime import datetime, timezone
 
           with open("artifacts/output-metadata.json", "r", encoding="utf-8") as f:
@@ -135,17 +135,54 @@ jobs:
               print("::error::Invalid versionCode/versionName in output-metadata.json")
               sys.exit(1)
 
-          # Extract public SHA-256 certificate fingerprint from built APK (never prints private key)
-          cert_out = subprocess.check_output(
-              ["keytool", "-printcert", "-jarfile", "artifacts/app-debug.apk"],
-              text=True,
-              stderr=subprocess.STDOUT,
-          )
-          m_sha256 = re.search(r"SHA256:\s*([0-9A-Fa-f:]+)", cert_out)
+          # Extract public SHA-256 certificate fingerprint from built APK (never prints private key).
+          # AGP signs minSdk >= 24 APKs using APK Signature Scheme v2/v3, which keytool -jarfile cannot inspect.
+          def find_apksigner():
+              on_path = shutil.which("apksigner")
+              if on_path:
+                  return on_path
+              candidates = []
+              for root_var in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
+                  root = os.environ.get(root_var, "")
+                  if root:
+                      candidates.extend(glob.glob(os.path.join(root, "build-tools", "*", "apksigner")))
+              for default_root in ("/usr/local/lib/android/sdk", "/opt/android/sdk", os.path.expanduser("~/android-sdk")):
+                  candidates.extend(glob.glob(os.path.join(default_root, "build-tools", "*", "apksigner")))
+              valid = [p for p in candidates if os.path.isfile(p) and os.access(p, os.X_OK)]
+              if not valid:
+                  return None
+              def ver_key(path):
+                  parent = os.path.basename(os.path.dirname(path))
+                  return [int(x) if x.isdigit() else 0 for x in re.split(r"[^0-9]+", parent) if x]
+              valid.sort(key=ver_key, reverse=True)
+              return valid[0]
+
+          cert_out = ""
+          apksigner = find_apksigner()
+          if apksigner:
+              proc = subprocess.run(
+                  [apksigner, "verify", "--print-certs", "artifacts/app-debug.apk"],
+                  text=True,
+                  capture_output=True,
+              )
+              cert_out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+              if proc.returncode != 0:
+                  print(f"::error::apksigner verification failed ({apksigner}):\n{cert_out}")
+                  sys.exit(1)
+          else:
+              proc = subprocess.run(
+                  ["keytool", "-printcert", "-jarfile", "artifacts/app-debug.apk"],
+                  text=True,
+                  capture_output=True,
+              )
+              cert_out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+
+          m_sha256 = re.search(r"SHA-?256(?:\s+digest)?:\s*([0-9A-Fa-f:]+)", cert_out, re.IGNORECASE)
           if not m_sha256:
-              print("::error::Unable to verify APK public signing certificate.")
+              print(f"::error::Unable to verify APK public signing certificate. Output:\n{cert_out}")
               sys.exit(1)
           signing_sha256 = m_sha256.group(1).replace(":", "").upper()
+          print(f"Verified APK packageId={pkg_id}, versionCode={version_code}, signingCertSha256={signing_sha256}")
 
           # Compute APK SHA-256 checksum
           h = hashlib.sha256()
@@ -154,7 +191,7 @@ jobs:
                   h.update(chunk)
           apk_sha256 = h.hexdigest().lower()
 
-          repo = os.environ.get("GITHUB_REPOSITORY", "sanjukadivalar-2610/My-Family-Doc")
+          repo = os.environ.get("GITHUB_REPOSITORY", "sanjukadivalar-2610/My-Family-Documents")
           server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
           prev_url = f"{server}/{repo}/releases/download/debug-latest/version.json"
 
@@ -188,7 +225,7 @@ jobs:
               except Exception:
                   pass
           if not release_notes:
-              release_notes = f"My Family Doc v{version_name} (Build {version_code})."
+              release_notes = f"FAMVIORA v{version_name} (Build {version_code})."
 
           manifest = {
               "versionCode": version_code,
@@ -227,9 +264,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: debug-latest
-          name: My Family Doc v${{ env.OUT_VERSION_NAME }} (Build ${{ env.OUT_VERSION_CODE }})
+          name: FAMVIORA v${{ env.OUT_VERSION_NAME }} (Build ${{ env.OUT_VERSION_CODE }})
           body: |
-            Automated signed release for **My Family Doc** (`com.aistudio.myfamilydoc.k7m2px`).
+            Automated signed release for **FAMVIORA** (`com.aistudio.myfamilydoc.k7m2px`).
 
             - **Version:** `v${{ env.OUT_VERSION_NAME }}` (`versionCode=${{ env.OUT_VERSION_CODE }}`)
             - **Direct APK URL:** `${{ github.server_url }}/${{ github.repository }}/releases/download/debug-latest/app-debug.apk`
@@ -239,7 +276,7 @@ jobs:
             artifacts/app-debug.apk
             artifacts/version.json
           prerelease: true
-          make_latest: true
+          make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -247,7 +284,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          name: My Family Doc ${{ github.ref_name }} (Build ${{ env.OUT_VERSION_CODE }})
+          name: FAMVIORA ${{ github.ref_name }} (Build ${{ env.OUT_VERSION_CODE }})
           files: |
             artifacts/app-debug.apk
             artifacts/version.json

@@ -5,9 +5,11 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,15 +27,19 @@ import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -313,23 +319,41 @@ fun ExpiryStatusPill(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DocumentCardItem(
     document: FamilyDocument,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig()
+    cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig(),
+    selectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onToggleSelect: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+    onShareClick: (() -> Unit)? = null,
+    onDownloadClick: (() -> Unit)? = null
 ) {
     val strings = LocalAppStrings.current
     val category = cloudConfig.resolveCategoryOption(document.category)
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode && onToggleSelect != null) onToggleSelect() else onClick()
+                },
+                onLongClick = onLongClick
+            )
             .testTag("document_card_${document.id}"),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) SkyAccent.copy(alpha = 0.12f)
+            else MaterialTheme.colorScheme.surface
+        ),
+        border = BorderStroke(
+            width = if (isSelected) 1.5.dp else 1.dp,
+            color = if (isSelected) NavyPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
@@ -338,6 +362,16 @@ fun DocumentCardItem(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (selectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelect?.invoke() },
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("doc_card_checkbox_${document.id}")
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -424,6 +458,44 @@ fun DocumentCardItem(
                         tint = if (document.isBackedUp) EmeraldVerified else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
+                }
+            }
+            if (!selectionMode && (onShareClick != null || onDownloadClick != null)) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    if (onShareClick != null) {
+                        IconButton(
+                            onClick = onShareClick,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("doc_card_share_${document.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Share,
+                                contentDescription = strings.docActions.shareAction,
+                                tint = NavyPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    if (onDownloadClick != null) {
+                        IconButton(
+                            onClick = onDownloadClick,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("doc_card_download_${document.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Download,
+                                contentDescription = strings.docActions.downloadAction,
+                                tint = NavyPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

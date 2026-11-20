@@ -213,6 +213,33 @@ fun CreatePasswordScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Surface(
+                        shape = RoundedCornerShape(50),
+                        color = SkySoft,
+                        modifier = Modifier.testTag("create_password_brand_badge")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Shield,
+                                contentDescription = strings.appName,
+                                tint = NavyPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = strings.appName,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = NavyPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Surface(
                         shape = RoundedCornerShape(18.dp),
                         color = SkySoft,
                         modifier = Modifier.size(64.dp)

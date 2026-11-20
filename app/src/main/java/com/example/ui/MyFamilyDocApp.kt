@@ -1,9 +1,12 @@
 package com.example.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -61,9 +65,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -74,6 +81,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.data.documents.DocumentTransferManager
 import com.example.data.firebase.AccountAuthRepository
 import com.example.data.firebase.AccountDeletionRepository
 import com.example.data.firebase.AccountDeletionResult
@@ -85,6 +93,7 @@ import com.example.data.security.SecuritySettings
 import com.example.data.update.AppUpdateRepository
 import com.example.data.update.AppUpdateState
 import com.example.data.update.UpdatePhase
+import com.example.domain.model.FamilyDocument
 import com.example.domain.model.UiState
 import com.example.localization.LocalAppStrings
 import com.example.localization.stringsForLanguage
@@ -97,8 +106,11 @@ import com.example.ui.auth.PinMode
 import com.example.ui.auth.authStateFlow
 import com.example.ui.auth.obtainGoogleCredentialFromManager
 import com.example.ui.auth.signOutUser
+import com.example.ui.components.CreateDocumentWithMimeContract
 import com.example.ui.components.DeleteAccountDialogState
 import com.example.ui.components.DeleteAccountFlowDialogs
+import com.example.ui.components.DocumentTransferBanner
+import com.example.ui.components.DownloadDestinationDialog
 import com.example.ui.screens.AdminPanelScreen
 import com.example.ui.screens.BackupScreen
 import com.example.ui.screens.CameraScannerScreen
@@ -108,7 +120,9 @@ import com.example.ui.screens.FamilyScreen
 import com.example.ui.screens.HomeDashboardScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.UpdateScreen
+import com.example.ui.theme.NavyDeep
 import com.example.ui.theme.NavyPrimary
+import com.example.ui.theme.PureWhite
 import com.example.ui.theme.SkyAccent
 import com.example.ui.theme.SkySoft
 import com.example.ui.viewmodel.MainViewModel
@@ -116,6 +130,7 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -134,7 +149,9 @@ private enum class VaultTab(
 @Composable
 fun MyFamilyDocApp(
     securityPreferences: SecurityPreferences,
-    securitySettings: SecuritySettings
+    securitySettings: SecuritySettings,
+    pendingVaultLinkUri: Uri? = null,
+    onConsumeVaultLink: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -145,6 +162,12 @@ fun MyFamilyDocApp(
 
     val appStrings = remember(securitySettings.languageCode) {
         stringsForLanguage(securitySettings.languageCode)
+    }
+
+    var showSplashOverlay by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        delay(550L)
+        showSplashOverlay = false
     }
 
     var providerRefreshCounter by remember(currentUser?.uid) { mutableIntStateOf(0) }
@@ -335,6 +358,7 @@ fun MyFamilyDocApp(
                     providerRefreshCounter++
                 },
                 onSignOut = {
+                    DocumentTransferManager.clearAllShareTempFiles(context.applicationContext)
                     signOutUser(
                         credentialManager = credentialManager,
                         scope = scope
@@ -363,11 +387,14 @@ fun MyFamilyDocApp(
                         )
                     },
                     onSignOut = {
+                        DocumentTransferManager.clearAllShareTempFiles(context.applicationContext)
                         signOutUser(
                             credentialManager = credentialManager,
                             scope = scope
                         )
                     },
+                    pendingVaultLinkUri = pendingVaultLinkUri,
+                    onConsumeVaultLink = onConsumeVaultLink,
                     updateState = updateState,
                     onCheckForUpdates = { scope.launch { appUpdateRepository.checkForUpdates() } },
                     onStartDownloadAndInstall = ::startAppUpdateDownloadAndInstall,
@@ -464,6 +491,76 @@ fun MyFamilyDocApp(
                 deleteAccountDialogState = DeleteAccountDialogState.Idle
             }
         )
+
+        AnimatedVisibility(
+            visible = showSplashOverlay,
+            exit = fadeOut()
+        ) {
+            FamvioraSplashOverlay()
+        }
+    }
+}
+
+@Composable
+fun FamvioraSplashOverlay() {
+    val strings = LocalAppStrings.current
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(NavyDeep, NavyPrimary)
+                )
+            )
+            .testTag("famviora_splash_screen"),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = PureWhite.copy(alpha = 0.14f),
+                modifier = Modifier.size(88.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Shield,
+                        contentDescription = strings.appName,
+                        tint = SkyAccent,
+                        modifier = Modifier.size(48.dp)
+                    )
+                }
+            }
+            Text(
+                text = strings.appName,
+                style = MaterialTheme.typography.headlineLarge,
+                color = PureWhite,
+                fontWeight = FontWeight.ExtraBold
+            )
+            if (strings.languageCode == "kn") {
+                Text(
+                    text = strings.docActions.brandPronunciationKn,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = SkyAccent,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = strings.tagline,
+                style = MaterialTheme.typography.titleSmall,
+                color = SkySoft,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = strings.docActions.splashSubtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = SkySoft.copy(alpha = 0.85f),
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
@@ -481,6 +578,8 @@ private fun AuthenticatedVaultShell(
     credentialManager: CredentialManager,
     onRequestDeleteAccount: (AdminDeleteAction, String?) -> Unit,
     onSignOut: () -> Unit,
+    pendingVaultLinkUri: Uri?,
+    onConsumeVaultLink: () -> Unit,
     updateState: AppUpdateState,
     onCheckForUpdates: () -> Unit,
     onStartDownloadAndInstall: () -> Unit,
@@ -491,6 +590,7 @@ private fun AuthenticatedVaultShell(
     val context = LocalContext.current
     val application = context.applicationContext as Application
     val strings = LocalAppStrings.current
+    val clipboard = LocalClipboardManager.current
 
     val viewModel: MainViewModel = viewModel(
         key = userId,
@@ -520,6 +620,7 @@ private fun AuthenticatedVaultShell(
     val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsStateWithLifecycle()
     val isActionBusy by viewModel.isActionBusy.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
+    val transferState by viewModel.transferState.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val shellScope = rememberCoroutineScope()
@@ -540,6 +641,127 @@ private fun AuthenticatedVaultShell(
     var openAddMemberInitially by rememberSaveable { mutableStateOf(false) }
     var openUploadDocInitially by rememberSaveable { mutableStateOf(false) }
     var memberFilterId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    var homePendingDownloadDoc by remember { mutableStateOf<FamilyDocument?>(null) }
+    var homePendingSafDoc by remember { mutableStateOf<FamilyDocument?>(null) }
+    val homeSafCreateLauncher = rememberLauncherForActivityResult(
+        contract = CreateDocumentWithMimeContract()
+    ) { uri ->
+        val doc = homePendingSafDoc
+        homePendingSafDoc = null
+        if (uri != null && doc != null) {
+            viewModel.downloadDocumentToSafUri(doc, uri)
+        }
+    }
+
+    fun openSavedDocumentUri(uri: Uri, mimeType: String) {
+        val openIntent = DocumentTransferManager.buildOpenWithIntent(
+            context = context,
+            contentUri = uri,
+            mimeType = mimeType,
+            chooserTitle = strings.docActions.openWithLabel
+        )
+        runCatching {
+            context.startActivity(openIntent)
+        }.onFailure {
+            shellScope.launch {
+                snackbarHostState.showSnackbar(strings.docActions.noAppAvailableMessage)
+            }
+        }
+    }
+
+    fun shareSingleDocument(doc: FamilyDocument) {
+        shellScope.launch {
+            viewModel.prepareShareSingle(doc, strings.shareDocument)
+                .onSuccess { intent ->
+                    runCatching { context.startActivity(intent) }.onFailure {
+                        snackbarHostState.showSnackbar(strings.docActions.noAppAvailableMessage)
+                    }
+                }
+        }
+    }
+
+    fun shareMultipleDocuments(docs: List<FamilyDocument>) {
+        shellScope.launch {
+            viewModel.prepareShareMultiple(docs, strings.docActions.shareMultipleAction)
+                .onSuccess { intent ->
+                    runCatching { context.startActivity(intent) }.onFailure {
+                        snackbarHostState.showSnackbar(strings.docActions.noAppAvailableMessage)
+                    }
+                }
+        }
+    }
+
+    fun openWithDocument(doc: FamilyDocument) {
+        shellScope.launch {
+            viewModel.prepareOpenWith(doc, strings.docActions.openWithLabel)
+                .onSuccess { intent ->
+                    runCatching { context.startActivity(intent) }.onFailure {
+                        snackbarHostState.showSnackbar(strings.docActions.noAppAvailableMessage)
+                    }
+                }
+        }
+    }
+
+    fun copyAuthorizedLink(doc: FamilyDocument) {
+        val link = viewModel.buildAuthorizedLinkIfAllowed(doc)
+        if (link == null) {
+            shellScope.launch {
+                snackbarHostState.showSnackbar(strings.docActions.unauthorizedAccessMessage)
+            }
+        } else {
+            clipboard.setText(AnnotatedString(link))
+            shellScope.launch {
+                snackbarHostState.showSnackbar(strings.docActions.linkCopiedMessage)
+            }
+        }
+    }
+
+    LaunchedEffect(
+        pendingVaultLinkUri,
+        userProfileState,
+        familyAccount,
+        documentsState,
+        settings.pinEnabled,
+        isVaultUnlocked
+    ) {
+        val uri = pendingVaultLinkUri ?: return@LaunchedEffect
+        val target = DocumentTransferManager.parseAuthorizedVaultLink(uri)
+        if (target == null) {
+            onConsumeVaultLink()
+            return@LaunchedEffect
+        }
+        val profileOk = userProfileState as? UiState.Success ?: return@LaunchedEffect
+        val profile = profileOk.data
+        if (profile == null || profile.familyId.isBlank()) {
+            onConsumeVaultLink()
+            return@LaunchedEffect
+        }
+        if (settings.pinEnabled && !isVaultUnlocked) return@LaunchedEffect
+        val family = familyAccount ?: return@LaunchedEffect
+        val docsOk = documentsState as? UiState.Success ?: return@LaunchedEffect
+
+        if (family.familyId != target.familyId) {
+            onConsumeVaultLink()
+            snackbarHostState.showSnackbar(strings.docActions.deepLinkUnauthorizedMessage)
+            return@LaunchedEffect
+        }
+
+        val authorizedDoc = docsOk.data.firstOrNull { doc ->
+            doc.id == target.docId && DocumentTransferManager.verifyDocumentAccess(doc, userId, family)
+        }
+        onConsumeVaultLink()
+        if (authorizedDoc != null) {
+            showPinSetup = false
+            showCameraScanner = false
+            showAdminPanel = false
+            showUpdateScreen = false
+            currentTab = VaultTab.DOCUMENTS
+            selectedDocumentId = authorizedDoc.id
+        } else {
+            snackbarHostState.showSnackbar(strings.docActions.deepLinkUnauthorizedMessage)
+        }
+    }
 
     when (val profileRes = userProfileState) {
         UiState.Loading -> {
@@ -680,7 +902,15 @@ private fun AuthenticatedVaultShell(
                         },
                         onDeleteDocument = viewModel::deleteDocument,
                         onBack = { selectedDocumentId = null },
-                        cloudConfig = effectiveCloudConfig
+                        cloudConfig = effectiveCloudConfig,
+                        transferState = transferState,
+                        onShare = { shareSingleDocument(selectedDocument) },
+                        onDownloadToDownloads = { viewModel.downloadDocumentToDownloads(selectedDocument) },
+                        onDownloadToSafUri = { uri -> viewModel.downloadDocumentToSafUri(selectedDocument, uri) },
+                        onOpenWith = { openWithDocument(selectedDocument) },
+                        onCopyLink = { copyAuthorizedLink(selectedDocument) },
+                        onOpenSavedFile = ::openSavedDocumentUri,
+                        onDismissTransferState = viewModel::dismissTransferState
                     )
                     SnackbarHost(
                         hostState = snackbarHostState,
@@ -807,7 +1037,9 @@ private fun AuthenticatedVaultShell(
                                         if (updateState.phase != UpdatePhase.DOWNLOADING) {
                                             onStartDownloadAndInstall()
                                         }
-                                    }
+                                    },
+                                    onShareDocument = ::shareSingleDocument,
+                                    onDownloadDocument = { doc -> homePendingDownloadDoc = doc }
                                 )
                             }
 
@@ -856,7 +1088,25 @@ private fun AuthenticatedVaultShell(
                                             expiryDateMillis = expiryMs
                                         )
                                     },
-                                    cloudConfig = effectiveCloudConfig
+                                    cloudConfig = effectiveCloudConfig,
+                                    transferState = transferState,
+                                    onShareSingle = ::shareSingleDocument,
+                                    onShareMultiple = ::shareMultipleDocuments,
+                                    onDownloadToDownloads = { docsToSave ->
+                                        if (docsToSave.size == 1) {
+                                            viewModel.downloadDocumentToDownloads(docsToSave.first())
+                                        } else {
+                                            viewModel.downloadMultipleToDownloads(docsToSave)
+                                        }
+                                    },
+                                    onDownloadSingleToSafUri = { doc, uri ->
+                                        viewModel.downloadDocumentToSafUri(doc, uri)
+                                    },
+                                    onDownloadMultipleToTreeUri = { docsToSave, treeUri ->
+                                        viewModel.downloadMultipleToTreeUri(docsToSave, treeUri)
+                                    },
+                                    onOpenSavedFile = ::openSavedDocumentUri,
+                                    onDismissTransferState = viewModel::dismissTransferState
                                 )
                             }
 
@@ -959,6 +1209,35 @@ private fun AuthenticatedVaultShell(
                                 )
                             }
                         }
+                        if (currentTab != VaultTab.DOCUMENTS && transferState != null) {
+                            DocumentTransferBanner(
+                                transferState = transferState,
+                                onOpenFile = ::openSavedDocumentUri,
+                                onDismiss = viewModel::dismissTransferState,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(16.dp)
+                            )
+                        }
+                    }
+
+                    homePendingDownloadDoc?.let { targetDoc ->
+                        DownloadDestinationDialog(
+                            targetLabel = DocumentTransferManager.buildSafeFileName(targetDoc),
+                            onSaveToDownloads = {
+                                homePendingDownloadDoc = null
+                                viewModel.downloadDocumentToDownloads(targetDoc)
+                            },
+                            onChooseFolder = {
+                                homePendingDownloadDoc = null
+                                homePendingSafDoc = targetDoc
+                                homeSafCreateLauncher.launch(
+                                    DocumentTransferManager.buildSafeFileName(targetDoc) to
+                                        DocumentTransferManager.resolveMimeType(targetDoc)
+                                )
+                            },
+                            onDismiss = { homePendingDownloadDoc = null }
+                        )
                     }
                 }
 

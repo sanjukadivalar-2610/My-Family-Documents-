@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.Button
@@ -104,7 +105,9 @@ fun HomeDashboardScreen(
     updateState: AppUpdateState = AppUpdateState(),
     cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig(),
     onOpenUpdates: () -> Unit = {},
-    onStartAppUpdate: () -> Unit = {}
+    onStartAppUpdate: () -> Unit = {},
+    onShareDocument: ((FamilyDocument) -> Unit)? = null,
+    onDownloadDocument: ((FamilyDocument) -> Unit)? = null
 ) {
     val strings = LocalAppStrings.current
     val clipboard = LocalClipboardManager.current
@@ -118,7 +121,8 @@ fun HomeDashboardScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .testTag("home_lazy_column"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -139,6 +143,52 @@ fun HomeDashboardScreen(
                             .padding(20.dp)
                     ) {
                         Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("home_brand_header"),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = PureWhite.copy(alpha = 0.16f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Shield,
+                                            contentDescription = strings.appName,
+                                            tint = SkyAccent,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            text = if (languageCode == "kn") {
+                                                "${strings.appName} • ${strings.docActions.brandPronunciationKn}"
+                                            } else {
+                                                strings.appName
+                                            },
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = PureWhite,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = strings.tagline,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = SkySoft,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -634,7 +684,9 @@ fun HomeDashboardScreen(
                                 DocumentCardItem(
                                     document = doc,
                                     onClick = { onOpenDocumentDetail(doc) },
-                                    cloudConfig = cloudConfig
+                                    cloudConfig = cloudConfig,
+                                    onShareClick = onShareDocument?.let { cb -> { cb(doc) } },
+                                    onDownloadClick = onDownloadDocument?.let { cb -> { cb(doc) } }
                                 )
                             }
                         }
@@ -700,7 +752,9 @@ fun HomeDashboardScreen(
                         document = doc,
                         onClick = { onOpenDocumentDetail(doc) },
                         modifier = Modifier.widthIn(max = 960.dp),
-                        cloudConfig = cloudConfig
+                        cloudConfig = cloudConfig,
+                        onShareClick = onShareDocument?.let { cb -> { cb(doc) } },
+                        onDownloadClick = onDownloadDocument?.let { cb -> { cb(doc) } }
                     )
                 }
             }

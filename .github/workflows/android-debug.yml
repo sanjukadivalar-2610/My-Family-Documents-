@@ -122,7 +122,7 @@ jobs:
         if: success()
         run: |
           cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
-          ## My Family Doc — Signed Debug APK Artifact
+          ## FAMVIORA — Signed Debug APK Artifact
 
           - **Artifact Name:** `app-debug-apk` (`app-debug.apk`)
           - **Download from GitHub Actions Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

@@ -37,10 +37,10 @@ object ExpiryNotificationHelper {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Document Expiry Reminders",
+                "FAMVIORA Expiry Reminders",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Alerts for family documents expiring within 30 days"
+                description = "FAMVIORA alerts for family documents expiring within 30 days"
             }
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
@@ -65,9 +65,9 @@ object ExpiryNotificationHelper {
 
         ensureChannel(context)
         val title = if (languageCode == "kn") {
-            "ದಾಖಲೆ ಮುಕ್ತಾಯ ಎಚ್ಚರಿಕೆ (${alerting.size})"
+            "FAMVIORA — ದಾಖಲೆ ಮುಕ್ತಾಯ ಎಚ್ಚರಿಕೆ (${alerting.size})"
         } else {
-            "Document Expiry Alert (${alerting.size})"
+            "FAMVIORA — Document Expiry Alert (${alerting.size})"
         }
         val firstDoc = alerting.first()
         val body = if (languageCode == "kn") {
@@ -141,8 +141,10 @@ class AutoBackupWorker(
 }
 
 object VaultWorkScheduler {
-    private const val AUTO_BACKUP_WORK = "my_family_doc_auto_backup"
-    private const val PENDING_CLOUD_SYNC_WORK = "my_family_doc_pending_sync"
+    private const val AUTO_BACKUP_WORK = "famviora_auto_backup"
+    private const val PENDING_CLOUD_SYNC_WORK = "famviora_pending_sync"
+    private const val LEGACY_AUTO_BACKUP_WORK = "my_family_doc_auto_backup"
+    private const val LEGACY_PENDING_SYNC_WORK = "my_family_doc_pending_sync"
 
     fun enqueuePendingSync(context: Context) {
         val constraints = Constraints.Builder()
@@ -163,6 +165,7 @@ object VaultWorkScheduler {
 
     fun scheduleAutoBackup(context: Context, enabled: Boolean, intervalDays: Int) {
         val workManager = WorkManager.getInstance(context)
+        workManager.cancelUniqueWork(LEGACY_AUTO_BACKUP_WORK)
         if (!enabled) {
             workManager.cancelUniqueWork(AUTO_BACKUP_WORK)
             return
@@ -188,6 +191,8 @@ object VaultWorkScheduler {
             val workManager = WorkManager.getInstance(context)
             workManager.cancelUniqueWork(AUTO_BACKUP_WORK)
             workManager.cancelUniqueWork(PENDING_CLOUD_SYNC_WORK)
+            workManager.cancelUniqueWork(LEGACY_AUTO_BACKUP_WORK)
+            workManager.cancelUniqueWork(LEGACY_PENDING_SYNC_WORK)
         }
     }
 }

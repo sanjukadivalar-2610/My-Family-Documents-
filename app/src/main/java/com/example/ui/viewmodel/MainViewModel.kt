@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
@@ -12,6 +13,8 @@ import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.documents.DocumentTransferManager
+import com.example.data.documents.DocumentTransferState
 import com.example.data.firebase.CloudConfigRepository
 import com.example.data.firebase.FamilyVaultRepository
 import com.example.data.sample.SampleDocumentFactory
@@ -68,6 +71,9 @@ class MainViewModel(
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
+    private val _transferState = MutableStateFlow<DocumentTransferState?>(null)
+    val transferState: StateFlow<DocumentTransferState?> = _transferState.asStateFlow()
 
     private val _isSyncing = MutableStateFlow(false)
     private val syncMutex = Mutex()
@@ -204,6 +210,7 @@ class MainViewModel(
     )
 
     init {
+        DocumentTransferManager.cleanupStaleShareFiles(appContext)
         viewModelScope.launch {
             runCatching { repository.ensureUserProfile(securitySettings.value.languageCode) }
         }
@@ -721,7 +728,16 @@ class MainViewModel(
         }
     }
 
-    suspend fun loadDecryptedBytesForPreview(document: FamilyDocument): ByteArray? = withContext(Dispatchers.IO) {
+    suspend fun loadDecryptedBytesForPreview(document: FamilyDocument): ByteArray? =
+        loadDecryptedBytesWithProgress(document) { _, _ -> }
+
+    private suspend fun loadDecryptedBytesWithProgress(
+        document: FamilyDocument,
+        onCloudProgress: (Long, Long) -> Unit
+    ): ByteArray? = withContext(Dispatchers.IO) {
+        if (!DocumentTransferManager.verifyDocumentAccess(document, currentUserId, familyAccount.value)) {
+            return@withContext null
+        }
         val famId = document.familyId.ifBlank { familyAccount.value?.familyId.orEmpty() }.takeIf { it.isNotBlank() }
         val admUid = document.adminUid.ifBlank { familyAccount.value?.adminUid.orEmpty() }.takeIf { it.isNotBlank() }
 
@@ -730,7 +746,8 @@ class MainViewModel(
 
         val path = document.storagePath
         if (!path.isNullOrBlank()) {
-            val cloudRes = repository.downloadEncryptedPayloadFromStorage(path)
+            val cloudTempDir = File(appContext.cacheDir, "cloud_transfers")
+            val cloudRes = repository.downloadEncryptedPayloadWithProgress(path, cloudTempDir, onCloudProgress)
             val encrypted = cloudRes.getOrNull()
             if (encrypted != null) {
                 cryptoManager.writeRawEncryptedPayload(document.id, encrypted)
@@ -764,36 +781,359 @@ class MainViewModel(
         null
     }
 
-    fun exportDocumentToUri(document: FamilyDocument, targetUri: Uri, successMessage: String) {
+    fun dismissTransferState() {
+        _transferState.value = null
+    }
+
+    fun cleanupTemporaryShareFiles() {
+        DocumentTransferManager.clearAllShareTempFiles(appContext)
+    }
+
+    fun buildAuthorizedLinkIfAllowed(document: FamilyDocument): String? {
+        if (!DocumentTransferManager.verifyDocumentAccess(document, currentUserId, familyAccount.value)) {
+            return null
+        }
+        return DocumentTransferManager.buildAuthorizedVaultLink(document)
+    }
+
+    suspend fun prepareShareSingle(document: FamilyDocument, chooserTitle: String): Result<Intent> {
+        if (!DocumentTransferManager.verifyDocumentAccess(document, currentUserId, familyAccount.value)) {
+            val msg = "Access denied: you do not have permission for this family document."
+            _transferState.value = DocumentTransferState.Failed(msg)
+            return Result.failure(SecurityException(msg))
+        }
+        _transferState.value = DocumentTransferState.Preparing(document.title, isShare = true)
+        return try {
+            val bytes = loadDecryptedBytesForPreview(document)
+            if (bytes == null) {
+                val msg = "Document payload is not available locally or in cloud."
+                _transferState.value = DocumentTransferState.Failed(msg)
+                return Result.failure(IllegalStateException(msg))
+            }
+            val tempFile = DocumentTransferManager.createTempDecryptedShareFile(appContext, document, bytes)
+            val uri = DocumentTransferManager.getShareContentUri(appContext, tempFile)
+            val intent = DocumentTransferManager.buildSingleShareIntent(appContext, document, uri, chooserTitle)
+            _transferState.value = null
+            Result.success(intent)
+        } catch (e: CancellationException) {
+            _transferState.value = null
+            throw e
+        } catch (e: Exception) {
+            val msg = e.localizedMessage ?: "Unable to prepare document for sharing."
+            _transferState.value = DocumentTransferState.Failed(msg)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun prepareShareMultiple(docs: List<FamilyDocument>, chooserTitle: String): Result<Intent> {
+        if (docs.isEmpty()) {
+            return Result.failure(IllegalArgumentException("No documents selected."))
+        }
+        val unauthorized = docs.firstOrNull {
+            !DocumentTransferManager.verifyDocumentAccess(it, currentUserId, familyAccount.value)
+        }
+        if (unauthorized != null) {
+            val msg = "Access denied: you do not have permission for \"${unauthorized.title}\"."
+            _transferState.value = DocumentTransferState.Failed(msg)
+            return Result.failure(SecurityException(msg))
+        }
+        _transferState.value = DocumentTransferState.Preparing("${docs.size} documents", isShare = true)
+        return try {
+            val uriPairs = mutableListOf<Pair<FamilyDocument, Uri>>()
+            for (doc in docs) {
+                val bytes = loadDecryptedBytesForPreview(doc)
+                    ?: throw IllegalStateException("Payload missing for \"${doc.title}\".")
+                val file = DocumentTransferManager.createTempDecryptedShareFile(appContext, doc, bytes)
+                val uri = DocumentTransferManager.getShareContentUri(appContext, file)
+                uriPairs.add(doc to uri)
+            }
+            val intent = DocumentTransferManager.buildMultiShareIntent(appContext, uriPairs, chooserTitle)
+            _transferState.value = null
+            Result.success(intent)
+        } catch (e: CancellationException) {
+            _transferState.value = null
+            throw e
+        } catch (e: Exception) {
+            val msg = e.localizedMessage ?: "Unable to prepare selected documents for sharing."
+            _transferState.value = DocumentTransferState.Failed(msg)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun prepareOpenWith(document: FamilyDocument, chooserTitle: String): Result<Intent> {
+        if (!DocumentTransferManager.verifyDocumentAccess(document, currentUserId, familyAccount.value)) {
+            val msg = "Access denied: you do not have permission for this family document."
+            _transferState.value = DocumentTransferState.Failed(msg)
+            return Result.failure(SecurityException(msg))
+        }
+        _transferState.value = DocumentTransferState.Preparing(document.title, isShare = false)
+        return try {
+            val bytes = loadDecryptedBytesForPreview(document)
+                ?: throw IllegalStateException("Document payload is not available locally or in cloud.")
+            val file = DocumentTransferManager.createTempDecryptedShareFile(appContext, document, bytes)
+            val uri = DocumentTransferManager.getShareContentUri(appContext, file)
+            val mime = DocumentTransferManager.resolveMimeType(document)
+            val intent = DocumentTransferManager.buildOpenWithIntent(appContext, uri, mime, chooserTitle)
+            _transferState.value = null
+            Result.success(intent)
+        } catch (e: CancellationException) {
+            _transferState.value = null
+            throw e
+        } catch (e: Exception) {
+            val msg = e.localizedMessage ?: "Unable to open document externally."
+            _transferState.value = DocumentTransferState.Failed(msg)
+            Result.failure(e)
+        }
+    }
+
+    fun downloadDocumentToDownloads(document: FamilyDocument) {
+        if (!DocumentTransferManager.verifyDocumentAccess(document, currentUserId, familyAccount.value)) {
+            _transferState.value = DocumentTransferState.Failed("Access denied for this document.")
+            return
+        }
         viewModelScope.launch {
-            _isActionBusy.value = true
+            _transferState.value = DocumentTransferState.Downloading(
+                docTitle = document.title,
+                completedCount = 0,
+                totalCount = 1,
+                bytesRead = 0L,
+                totalBytes = document.fileSizeBytes.coerceAtLeast(1L),
+                progressPercent = 0
+            )
             try {
-                val bytes = loadDecryptedBytesForPreview(document)
-                if (bytes != null) {
-                    withContext(Dispatchers.IO) {
-                        appContext.contentResolver.openOutputStream(targetUri)?.use { it.write(bytes) }
-                    }
-                    _statusMessage.value = successMessage
-                } else {
-                    _statusMessage.value = "Encrypted payload not available locally or in cloud"
+                val bytes = loadDecryptedBytesWithProgress(document) { read, total ->
+                    val safeTotal = total.coerceAtLeast(1L)
+                    val pct = ((read * 60L) / safeTotal).toInt().coerceIn(0, 60)
+                    _transferState.value = DocumentTransferState.Downloading(
+                        docTitle = document.title,
+                        completedCount = 0,
+                        totalCount = 1,
+                        bytesRead = read,
+                        totalBytes = total,
+                        progressPercent = pct
+                    )
+                } ?: throw IllegalStateException("Encrypted payload not available locally or in cloud.")
+
+                val safeName = DocumentTransferManager.buildSafeFileName(document)
+                val mime = DocumentTransferManager.resolveMimeType(document)
+                val saveRes = DocumentTransferManager.saveToDownloads(appContext, safeName, mime, bytes) { written, total ->
+                    val safeTotal = total.coerceAtLeast(1L)
+                    val pct = 60 + ((written * 40L) / safeTotal).toInt().coerceIn(0, 40)
+                    _transferState.value = DocumentTransferState.Downloading(
+                        docTitle = document.title,
+                        completedCount = 0,
+                        totalCount = 1,
+                        bytesRead = written,
+                        totalBytes = safeTotal,
+                        progressPercent = pct.coerceIn(0, 100)
+                    )
                 }
+                saveRes.onSuccess { saved ->
+                    _transferState.value = DocumentTransferState.Completed(
+                        fileName = saved.fileName,
+                        savedUri = saved.uri,
+                        mimeType = saved.mimeType,
+                        count = 1,
+                        isBatch = false
+                    )
+                }.onFailure { err ->
+                    _transferState.value = DocumentTransferState.Failed(err.localizedMessage ?: "Download failed.")
+                }
+            } catch (e: CancellationException) {
+                _transferState.value = null
+                throw e
             } catch (e: Exception) {
-                _statusMessage.value = e.localizedMessage ?: "Export failed"
-            } finally {
-                _isActionBusy.value = false
+                _transferState.value = DocumentTransferState.Failed(e.localizedMessage ?: "Download failed.")
             }
         }
     }
 
+    fun downloadDocumentToSafUri(document: FamilyDocument, targetUri: Uri) {
+        if (!DocumentTransferManager.verifyDocumentAccess(document, currentUserId, familyAccount.value)) {
+            _transferState.value = DocumentTransferState.Failed("Access denied for this document.")
+            return
+        }
+        viewModelScope.launch {
+            _transferState.value = DocumentTransferState.Downloading(
+                docTitle = document.title,
+                completedCount = 0,
+                totalCount = 1,
+                bytesRead = 0L,
+                totalBytes = document.fileSizeBytes.coerceAtLeast(1L),
+                progressPercent = 0
+            )
+            try {
+                val bytes = loadDecryptedBytesWithProgress(document) { read, total ->
+                    val safeTotal = total.coerceAtLeast(1L)
+                    val pct = ((read * 60L) / safeTotal).toInt().coerceIn(0, 60)
+                    _transferState.value = DocumentTransferState.Downloading(
+                        docTitle = document.title,
+                        completedCount = 0,
+                        totalCount = 1,
+                        bytesRead = read,
+                        totalBytes = total,
+                        progressPercent = pct
+                    )
+                } ?: throw IllegalStateException("Encrypted payload not available locally or in cloud.")
+
+                val writeRes = DocumentTransferManager.writeBytesToSafUri(appContext, targetUri, bytes) { written, total ->
+                    val safeTotal = total.coerceAtLeast(1L)
+                    val pct = 60 + ((written * 40L) / safeTotal).toInt().coerceIn(0, 40)
+                    _transferState.value = DocumentTransferState.Downloading(
+                        docTitle = document.title,
+                        completedCount = 0,
+                        totalCount = 1,
+                        bytesRead = written,
+                        totalBytes = safeTotal,
+                        progressPercent = pct.coerceIn(0, 100)
+                    )
+                }
+                val safeName = DocumentTransferManager.buildSafeFileName(document)
+                val mime = DocumentTransferManager.resolveMimeType(document)
+                writeRes.onSuccess {
+                    _transferState.value = DocumentTransferState.Completed(
+                        fileName = safeName,
+                        savedUri = targetUri,
+                        mimeType = mime,
+                        count = 1,
+                        isBatch = false
+                    )
+                }.onFailure { err ->
+                    _transferState.value = DocumentTransferState.Failed(err.localizedMessage ?: "Export failed.")
+                }
+            } catch (e: CancellationException) {
+                _transferState.value = null
+                throw e
+            } catch (e: Exception) {
+                _transferState.value = DocumentTransferState.Failed(e.localizedMessage ?: "Export failed.")
+            }
+        }
+    }
+
+    fun downloadMultipleToDownloads(docs: List<FamilyDocument>) {
+        if (docs.isEmpty()) return
+        val unauthorized = docs.firstOrNull {
+            !DocumentTransferManager.verifyDocumentAccess(it, currentUserId, familyAccount.value)
+        }
+        if (unauthorized != null) {
+            _transferState.value = DocumentTransferState.Failed("Access denied for \"${unauthorized.title}\".")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                var lastSaved: com.example.data.documents.SavedDocumentResult? = null
+                docs.forEachIndexed { idx, doc ->
+                    _transferState.value = DocumentTransferState.Downloading(
+                        docTitle = doc.title,
+                        completedCount = idx,
+                        totalCount = docs.size,
+                        bytesRead = 0L,
+                        totalBytes = doc.fileSizeBytes.coerceAtLeast(1L),
+                        progressPercent = ((idx * 100) / docs.size).coerceIn(0, 99)
+                    )
+                    val bytes = loadDecryptedBytesWithProgress(doc) { _, _ -> }
+                        ?: throw IllegalStateException("Encrypted payload missing for \"${doc.title}\".")
+                    val safeName = DocumentTransferManager.buildSafeFileName(doc)
+                    val mime = DocumentTransferManager.resolveMimeType(doc)
+                    val res = DocumentTransferManager.saveToDownloads(appContext, safeName, mime, bytes) { written, total ->
+                        val basePct = (idx * 100) / docs.size
+                        val slicePct = ((written * 100L) / total.coerceAtLeast(1L)).toInt() / docs.size
+                        _transferState.value = DocumentTransferState.Downloading(
+                            docTitle = doc.title,
+                            completedCount = idx,
+                            totalCount = docs.size,
+                            bytesRead = written,
+                            totalBytes = total,
+                            progressPercent = (basePct + slicePct).coerceIn(0, 100)
+                        )
+                    }
+                    lastSaved = res.getOrThrow()
+                }
+                val finalSaved = lastSaved!!
+                _transferState.value = DocumentTransferState.Completed(
+                    fileName = finalSaved.fileName,
+                    savedUri = finalSaved.uri,
+                    mimeType = finalSaved.mimeType,
+                    count = docs.size,
+                    isBatch = true
+                )
+            } catch (e: CancellationException) {
+                _transferState.value = null
+                throw e
+            } catch (e: Exception) {
+                _transferState.value = DocumentTransferState.Failed(e.localizedMessage ?: "Batch download failed.")
+            }
+        }
+    }
+
+    fun downloadMultipleToTreeUri(docs: List<FamilyDocument>, treeUri: Uri) {
+        if (docs.isEmpty()) return
+        val unauthorized = docs.firstOrNull {
+            !DocumentTransferManager.verifyDocumentAccess(it, currentUserId, familyAccount.value)
+        }
+        if (unauthorized != null) {
+            _transferState.value = DocumentTransferState.Failed("Access denied for \"${unauthorized.title}\".")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val prepared = mutableListOf<Triple<FamilyDocument, String, ByteArray>>()
+                docs.forEachIndexed { idx, doc ->
+                    _transferState.value = DocumentTransferState.Downloading(
+                        docTitle = doc.title,
+                        completedCount = idx,
+                        totalCount = docs.size,
+                        bytesRead = 0L,
+                        totalBytes = doc.fileSizeBytes.coerceAtLeast(1L),
+                        progressPercent = ((idx * 50) / docs.size).coerceIn(0, 50)
+                    )
+                    val bytes = loadDecryptedBytesWithProgress(doc) { _, _ -> }
+                        ?: throw IllegalStateException("Encrypted payload missing for \"${doc.title}\".")
+                    prepared.add(Triple(doc, DocumentTransferManager.buildSafeFileName(doc), bytes))
+                }
+                val res = DocumentTransferManager.saveMultipleToTreeUri(appContext, treeUri, prepared) { idx, totalCount, doc, read, total ->
+                    val pct = 50 + ((idx * 50) / totalCount) + (((read * 50L) / total.coerceAtLeast(1L)).toInt() / totalCount)
+                    _transferState.value = DocumentTransferState.Downloading(
+                        docTitle = doc.title,
+                        completedCount = idx,
+                        totalCount = totalCount,
+                        bytesRead = read,
+                        totalBytes = total,
+                        progressPercent = pct.coerceIn(0, 100)
+                    )
+                }
+                res.onSuccess { finalSaved ->
+                    _transferState.value = DocumentTransferState.Completed(
+                        fileName = finalSaved.fileName,
+                        savedUri = finalSaved.uri,
+                        mimeType = finalSaved.mimeType,
+                        count = docs.size,
+                        isBatch = true
+                    )
+                }.onFailure { err ->
+                    _transferState.value = DocumentTransferState.Failed(err.localizedMessage ?: "Batch save failed.")
+                }
+            } catch (e: CancellationException) {
+                _transferState.value = null
+                throw e
+            } catch (e: Exception) {
+                _transferState.value = DocumentTransferState.Failed(e.localizedMessage ?: "Batch save failed.")
+            }
+        }
+    }
+
+    fun exportDocumentToUri(document: FamilyDocument, targetUri: Uri, @Suppress("UNUSED_PARAMETER") successMessage: String) {
+        downloadDocumentToSafUri(document, targetUri)
+    }
+
     suspend fun prepareShareableTempFile(document: FamilyDocument): File? {
         val bytes = loadDecryptedBytesForPreview(document) ?: return null
-        return withContext(Dispatchers.IO) {
-            val exportDir = File(appContext.cacheDir, "exports").apply { if (!exists()) mkdirs() }
-            val safeName = document.fileName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-            val file = File(exportDir, safeName)
-            file.writeBytes(bytes)
-            file
-        }
+        return DocumentTransferManager.createTempDecryptedShareFile(appContext, document, bytes)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        DocumentTransferManager.clearAllShareTempFiles(appContext)
     }
 
     fun renameAndUpdateDocument(

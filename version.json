@@ -2,9 +2,9 @@
   "versionCode": 1,
   "versionName": "1.0",
   "packageId": "com.aistudio.myfamilydoc.k7m2px",
-  "apkUrl": "https://github.com/sanjukadivalar-2610/My-Family-Doc/releases/download/debug-latest/app-debug.apk",
+  "apkUrl": "https://github.com/sanjukadivalar-2610/My-Family-Documents/releases/download/debug-latest/app-debug.apk",
   "signingCertSha256": "C143F1209A2E98794C3C4CEDC8723FF9C9EF7AD13E2DAD9AD35D4EC26955B59A",
-  "releaseNotes": "My Family Doc v1.0 with multi-device family sync, AES-256-GCM encryption, account deletion, and automatic updates.",
+  "releaseNotes": "FAMVIORA v1.0 with multi-device family sync, AES-256-GCM encryption, document sharing and downloads, account deletion, and automatic updates.",
   "mandatory": false,
   "publishedAt": "2026-11-19T00:00:00Z"
 }

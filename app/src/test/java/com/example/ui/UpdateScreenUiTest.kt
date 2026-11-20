@@ -236,6 +236,8 @@ class UpdateScreenUiTest {
         composeRule.onNodeWithTag("home_update_banner").assertIsDisplayed()
         composeRule.onNodeWithTag("home_update_button").assertIsDisplayed().performClick()
         assertTrue(startUpdateCalled)
+        composeRule.onNodeWithTag("home_lazy_column")
+            .performScrollToNode(hasTestTag("home_cloud_notice_banner"))
         composeRule.onNodeWithTag("home_cloud_notice_banner").assertIsDisplayed()
         composeRule.onNodeWithText("Renew health insurance cards before March 31.").assertIsDisplayed()
     }

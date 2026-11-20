@@ -1,9 +1,11 @@
 package com.example.ui.screens
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,15 +30,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
@@ -54,6 +62,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -65,17 +74,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.data.documents.DocumentTransferManager
+import com.example.data.documents.DocumentTransferState
 import com.example.domain.model.CategoryOption
 import com.example.domain.model.DocumentCategory
 import com.example.domain.model.EffectiveCloudConfig
 import com.example.domain.model.FamilyDocument
 import com.example.domain.model.FamilyMember
 import com.example.localization.LocalAppStrings
+import com.example.ui.components.CreateDocumentWithMimeContract
 import com.example.ui.components.DocumentCardItem
+import com.example.ui.components.DocumentTransferBanner
+import com.example.ui.components.DownloadDestinationDialog
 import com.example.ui.components.formatDateMillis
 import com.example.ui.theme.NavyPrimary
 import com.example.ui.theme.PureWhite
+import com.example.ui.theme.SkySoft
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,9 +115,18 @@ fun DocumentsScreen(
         issueDateMillis: Long,
         expiryDateMillis: Long
     ) -> Unit,
-    cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig()
+    cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig(),
+    transferState: DocumentTransferState? = null,
+    onShareSingle: ((FamilyDocument) -> Unit)? = null,
+    onShareMultiple: ((List<FamilyDocument>) -> Unit)? = null,
+    onDownloadToDownloads: ((List<FamilyDocument>) -> Unit)? = null,
+    onDownloadSingleToSafUri: ((FamilyDocument, Uri) -> Unit)? = null,
+    onDownloadMultipleToTreeUri: ((List<FamilyDocument>, Uri) -> Unit)? = null,
+    onOpenSavedFile: ((Uri, String) -> Unit)? = null,
+    onDismissTransferState: (() -> Unit)? = null
 ) {
     val strings = LocalAppStrings.current
+    val docStrings = strings.docActions
     val categoryOptions = remember(cloudConfig) { cloudConfig.allCategoryOptions() }
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategoryKey by remember { mutableStateOf<String?>(null) }
@@ -110,6 +135,17 @@ fun DocumentsScreen(
         mutableStateOf(openUploadInitially).also {
             if (openUploadInitially || initialMemberFilterId != null) onConsumeInitialState()
         }
+    }
+
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedDocIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var downloadTargetsPendingChoice by remember { mutableStateOf<List<FamilyDocument>?>(null) }
+    var pendingSafSingleDoc by remember { mutableStateOf<FamilyDocument?>(null) }
+    var pendingSafTreeDocs by remember { mutableStateOf<List<FamilyDocument>>(emptyList()) }
+
+    BackHandler(enabled = isSelectionMode) {
+        isSelectionMode = false
+        selectedDocIds = emptySet()
     }
 
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
@@ -130,6 +166,26 @@ fun DocumentsScreen(
         if (uri != null) {
             pendingUri = uri
             pendingFileType = null
+        }
+    }
+
+    val safCreateSingleLauncher = rememberLauncherForActivityResult(
+        contract = CreateDocumentWithMimeContract()
+    ) { uri ->
+        val doc = pendingSafSingleDoc
+        pendingSafSingleDoc = null
+        if (uri != null && doc != null) {
+            onDownloadSingleToSafUri?.invoke(doc, uri)
+        }
+    }
+
+    val safFolderTreeLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri ->
+        val docsToSave = pendingSafTreeDocs
+        pendingSafTreeDocs = emptyList()
+        if (treeUri != null && docsToSave.isNotEmpty()) {
+            onDownloadMultipleToTreeUri?.invoke(docsToSave, treeUri)
         }
     }
 
@@ -163,19 +219,49 @@ fun DocumentsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .testTag("documents_lazy_column"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(modifier = Modifier.fillMaxWidth().widthIn(max = 960.dp)) {
-                        Text(
-                            text = strings.documentsTitle,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = strings.documentsTitle,
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (documents.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        isSelectionMode = !isSelectionMode
+                                        if (!isSelectionMode) selectedDocIds = emptySet()
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("documents_select_mode_button")
+                                ) {
+                                    Icon(
+                                        imageVector = if (isSelectionMode) Icons.Rounded.Close else Icons.Rounded.Checklist,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isSelectionMode) docStrings.cancelSelectionButton else docStrings.selectModeButton
+                                    )
+                                }
+                            }
+                        }
                         Spacer(modifier = Modifier.height(10.dp))
                         OutlinedTextField(
                             value = searchQuery,
@@ -273,6 +359,95 @@ fun DocumentsScreen(
                 }
             }
 
+            if (isSelectionMode) {
+                item {
+                    val selectedDocs = filteredDocs.filter { it.id in selectedDocIds }
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .widthIn(max = 960.dp)
+                                .testTag("documents_multi_action_bar"),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = SkySoft),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "${selectedDocs.size} ${docStrings.selectedCountSuffix}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NavyPrimary
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            if (selectedDocs.size == 1) {
+                                                onShareSingle?.invoke(selectedDocs.first())
+                                            } else {
+                                                onShareMultiple?.invoke(selectedDocs)
+                                            }
+                                            isSelectionMode = false
+                                            selectedDocIds = emptySet()
+                                        },
+                                        enabled = selectedDocs.isNotEmpty() && (onShareMultiple != null || onShareSingle != null),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = NavyPrimary,
+                                            contentColor = PureWhite
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(48.dp)
+                                            .testTag("multi_share_button")
+                                    ) {
+                                        Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(docStrings.shareSelectedButton, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            downloadTargetsPendingChoice = selectedDocs
+                                        },
+                                        enabled = selectedDocs.isNotEmpty() && (onDownloadToDownloads != null || onDownloadSingleToSafUri != null),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(48.dp)
+                                            .testTag("multi_download_button")
+                                    ) {
+                                        Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(docStrings.downloadSelectedButton, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (transferState != null) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        DocumentTransferBanner(
+                            transferState = transferState,
+                            onOpenFile = { uri, mime -> onOpenSavedFile?.invoke(uri, mime) },
+                            onDismiss = { onDismissTransferState?.invoke() },
+                            modifier = Modifier.widthIn(max = 960.dp)
+                        )
+                    }
+                }
+            }
+
             if (filteredDocs.isEmpty()) {
                 item {
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -324,7 +499,26 @@ fun DocumentsScreen(
                             document = doc,
                             onClick = { onOpenDocumentDetail(doc) },
                             modifier = Modifier.widthIn(max = 960.dp),
-                            cloudConfig = cloudConfig
+                            cloudConfig = cloudConfig,
+                            selectionMode = isSelectionMode,
+                            isSelected = doc.id in selectedDocIds,
+                            onToggleSelect = {
+                                selectedDocIds = if (doc.id in selectedDocIds) {
+                                    selectedDocIds - doc.id
+                                } else {
+                                    selectedDocIds + doc.id
+                                }
+                            },
+                            onLongClick = {
+                                if (!isSelectionMode) {
+                                    isSelectionMode = true
+                                    selectedDocIds = setOf(doc.id)
+                                }
+                            },
+                            onShareClick = onShareSingle?.let { cb -> { cb(doc) } },
+                            onDownloadClick = if (onDownloadToDownloads != null || onDownloadSingleToSafUri != null) {
+                                { downloadTargetsPendingChoice = listOf(doc) }
+                            } else null
                         )
                     }
                 }
@@ -332,6 +526,40 @@ fun DocumentsScreen(
 
             item { Spacer(modifier = Modifier.height(72.dp)) }
         }
+    }
+
+    downloadTargetsPendingChoice?.let { targetDocs ->
+        val label = if (targetDocs.size == 1) {
+            DocumentTransferManager.buildSafeFileName(targetDocs.first())
+        } else {
+            "${targetDocs.size} ${docStrings.selectedCountSuffix}"
+        }
+        DownloadDestinationDialog(
+            targetLabel = label,
+            onSaveToDownloads = {
+                downloadTargetsPendingChoice = null
+                onDownloadToDownloads?.invoke(targetDocs)
+                isSelectionMode = false
+                selectedDocIds = emptySet()
+            },
+            onChooseFolder = {
+                downloadTargetsPendingChoice = null
+                if (targetDocs.size == 1) {
+                    val single = targetDocs.first()
+                    pendingSafSingleDoc = single
+                    safCreateSingleLauncher.launch(
+                        DocumentTransferManager.buildSafeFileName(single) to
+                            DocumentTransferManager.resolveMimeType(single)
+                    )
+                } else {
+                    pendingSafTreeDocs = targetDocs
+                    safFolderTreeLauncher.launch(null)
+                }
+                isSelectionMode = false
+                selectedDocIds = emptySet()
+            },
+            onDismiss = { downloadTargetsPendingChoice = null }
+        )
     }
 
     if (showUploadSourceSheet) {

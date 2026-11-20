@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "My Family Doc"
+rootProject.name = "FAMVIORA"
 
 include(":app")

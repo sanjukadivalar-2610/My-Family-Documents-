@@ -49,6 +49,36 @@ data class UpdateStrings(
     val cloudConfigSavedMsg: String
 )
 
+data class DocumentActionStrings(
+    val brandPronunciationKn: String,
+    val splashSubtitle: String,
+    val shareAction: String,
+    val shareMultipleAction: String,
+    val downloadAction: String,
+    val downloadDestinationTitle: String,
+    val saveToDownloadsLabel: String,
+    val saveToDownloadsSubtitle: String,
+    val chooseFolderLabel: String,
+    val chooseFolderSubtitle: String,
+    val openWithLabel: String,
+    val copyLinkLabel: String,
+    val linkCopiedMessage: String,
+    val deepLinkUnauthorizedMessage: String,
+    val openFileButton: String,
+    val preparingDocumentMessage: String,
+    val downloadingProgressTitle: String,
+    val downloadCompletedSingle: String,
+    val downloadCompletedBatch: String,
+    val selectModeButton: String,
+    val cancelSelectionButton: String,
+    val selectedCountSuffix: String,
+    val shareSelectedButton: String,
+    val downloadSelectedButton: String,
+    val moreActionsLabel: String,
+    val unauthorizedAccessMessage: String,
+    val noAppAvailableMessage: String
+)
+
 data class AppStrings(
     val languageCode: String,
     val appName: String,
@@ -300,7 +330,8 @@ data class AppStrings(
     val accountDeletedSuccessMessage: String,
 
     // App Updates & Cloud-Synced Content
-    val updates: UpdateStrings
+    val updates: UpdateStrings,
+    val docActions: DocumentActionStrings
 ) {
     val appUpdatesTitle: String get() = updates.appUpdatesTitle
     val settingsUpdatesLink: String get() = updates.settingsUpdatesLink
@@ -366,7 +397,7 @@ private val EnglishUpdateStrings = UpdateStrings(
     verifiedSignatureLabel = "Signing Certificate Verified",
     verifiedVersionLabel = "Version Upgrade Verified",
     installPermissionTitle = "Allow App Installation",
-    installPermissionBody = "Android requires permission for My Family Doc to open the official installer. Your existing documents, family, PIN, and login stay untouched.",
+    installPermissionBody = "Android requires permission for FAMVIORA to open the official installer. Your existing documents, family, PIN, and login stay untouched.",
     allowAndInstallButton = "Allow & Install",
     readyToInstallTitle = "Update Verified & Ready",
     launchInstallerButton = "Install Update Now",
@@ -442,10 +473,70 @@ private val KannadaUpdateStrings = UpdateStrings(
     cloudConfigSavedMsg = "APK ನವೀಕರಣವಿಲ್ಲದೆಯೇ ಕ್ಲೌಡ್ ಸೆಟ್ಟಿಂಗ್‌ಗಳು ಎಲ್ಲಾ ಕುಟುಂಬ ಸಾಧನಗಳಿಗೆ ಸಿಂಕ್ ಆಗಿವೆ."
 )
 
+private val EnglishDocumentActionStrings = DocumentActionStrings(
+    brandPronunciationKn = "ಫ್ಯಾಮ್ವಿಯೋರಾ",
+    splashSubtitle = "AES-256 Encrypted Family Document Vault",
+    shareAction = "Share",
+    shareMultipleAction = "Share Selected",
+    downloadAction = "Download",
+    downloadDestinationTitle = "Choose Download Destination",
+    saveToDownloadsLabel = "Save to Downloads",
+    saveToDownloadsSubtitle = "Save directly into Downloads/FAMVIORA (no storage permission needed).",
+    chooseFolderLabel = "Choose Folder (Save As)",
+    chooseFolderSubtitle = "Pick a custom folder or cloud location via Android file picker.",
+    openWithLabel = "Open With",
+    copyLinkLabel = "Copy Link",
+    linkCopiedMessage = "Authenticated FAMVIORA vault link copied (requires signed-in family access).",
+    deepLinkUnauthorizedMessage = "This link belongs to a family document you are not authorized to access.",
+    openFileButton = "Open",
+    preparingDocumentMessage = "Decrypting secure document...",
+    downloadingProgressTitle = "Downloading Document",
+    downloadCompletedSingle = "Downloaded:",
+    downloadCompletedBatch = "Downloaded documents:",
+    selectModeButton = "Select",
+    cancelSelectionButton = "Cancel",
+    selectedCountSuffix = "selected",
+    shareSelectedButton = "Share",
+    downloadSelectedButton = "Download",
+    moreActionsLabel = "More Actions",
+    unauthorizedAccessMessage = "Access denied: you do not have permission for this family document.",
+    noAppAvailableMessage = "No compatible app found on this device to open this document."
+)
+
+private val KannadaDocumentActionStrings = DocumentActionStrings(
+    brandPronunciationKn = "ಫ್ಯಾಮ್ವಿಯೋರಾ",
+    splashSubtitle = "AES-256 ಎನ್‌ಕ್ರಿಪ್ಟೆಡ್ ಕುಟುಂಬ ದಾಖಲೆ ವಾಲ್ಟ್",
+    shareAction = "ಹಂಚಿ (Share)",
+    shareMultipleAction = "ಆಯ್ದವುಗಳನ್ನು ಹಂಚಿ",
+    downloadAction = "ಡೌನ್‌ಲೋಡ್",
+    downloadDestinationTitle = "ಡೌನ್‌ಲೋಡ್ ಸ್ಥಳವನ್ನು ಆಯ್ಕೆಮಾಡಿ",
+    saveToDownloadsLabel = "Downloads ಗೆ ಉಳಿಸಿ",
+    saveToDownloadsSubtitle = "ನೇರವಾಗಿ Downloads/FAMVIORA ನಲ್ಲಿ ಉಳಿಸಿ (ಹೆಚ್ಚುವರಿ ಅನುಮತಿ ಅಗತ್ಯವಿಲ್ಲ).",
+    chooseFolderLabel = "ಫೋಲ್ಡರ್ ಆಯ್ಕೆಮಾಡಿ (Save As)",
+    chooseFolderSubtitle = "Android ಫೈಲ್ ಪಿಕರ್ ಮೂಲಕ ನಿಮ್ಮ ಆಯ್ಕೆಯ ಫೋಲ್ಡರ್ ಆರಿಸಿ.",
+    openWithLabel = "ಇದರಲ್ಲಿ ತೆರೆಯಿರಿ (Open With)",
+    copyLinkLabel = "ಲಿಂಕ್ ನಕಲಿಸಿ (Copy Link)",
+    linkCopiedMessage = "ದೃಢೀಕೃತ FAMVIORA ವಾಲ್ಟ್ ಲಿಂಕ್ ನಕಲಿಸಲಾಗಿದೆ (ಕುಟುಂಬ ಸದಸ್ಯತ್ವ ಅಗತ್ಯವಿದೆ).",
+    deepLinkUnauthorizedMessage = "ಈ ಲಿಂಕ್‌ನ ದಾಖಲೆಯನ್ನು ಪ್ರವೇಶಿಸಲು ನಿಮಗೆ ಅನುಮತಿ ಇಲ್ಲ.",
+    openFileButton = "ತೆರೆಯಿರಿ (Open)",
+    preparingDocumentMessage = "ಸುರಕ್ಷಿತ ದಾಖಲೆಯನ್ನು ಡೀಕ್ರಿಪ್ಟ್ ಮಾಡಲಾಗುತ್ತಿದೆ...",
+    downloadingProgressTitle = "ದಾಖಲೆ ಡೌನ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ",
+    downloadCompletedSingle = "ಡೌನ್‌ಲೋಡ್ ಪೂರ್ಣ:",
+    downloadCompletedBatch = "ಡೌನ್‌ಲೋಡ್ ಆದ ದಾಖಲೆಗಳು:",
+    selectModeButton = "ಆಯ್ಕೆ",
+    cancelSelectionButton = "ರದ್ದು",
+    selectedCountSuffix = "ಆಯ್ದಿವೆ",
+    shareSelectedButton = "ಹಂಚಿ",
+    downloadSelectedButton = "ಡೌನ್‌ಲೋಡ್",
+    moreActionsLabel = "ಹೆಚ್ಚಿನ ಕ್ರಿಯೆಗಳು",
+    unauthorizedAccessMessage = "ಪ್ರವೇಶ ನಿರಾಕರಿಸಲಾಗಿದೆ: ಈ ದಾಖಲೆಗೆ ನಿಮಗೆ ಅನುಮತಿ ಇಲ್ಲ.",
+    noAppAvailableMessage = "ಈ ದಾಖಲೆಯನ್ನು ತೆರೆಯಲು ಸೂಕ್ತವಾದ ಆ್ಯಪ್ ಕಂಡುಬಂದಿಲ್ಲ."
+)
+
 val EnglishStrings = AppStrings(
     languageCode = "en",
-    appName = "My Family Doc",
-    tagline = "All Your Family Documents in One Place.",
+    appName = "FAMVIORA",
+    tagline = "Your Family. Your Records. Your Care.",
     navHome = "Home",
     navFamily = "Family",
     navDocuments = "Documents",
@@ -506,14 +597,14 @@ val EnglishStrings = AppStrings(
     verifyLinkGoogleButton = "Verify & Link Google",
     switchToEmailLoginHint = "Switch to Email Login",
 
-    enterPinTitle = "Unlock My Family Doc",
+    enterPinTitle = "Unlock FAMVIORA",
     setupPinTitle = "Create 4-Digit Vault PIN",
     confirmPinTitle = "Confirm Your 4-Digit PIN",
     pinSubtitle = "Enter your 4-digit security PIN to access encrypted family documents.",
     pinMismatchError = "PINs did not match. Please try again.",
     wrongPinError = "Incorrect PIN. Please try again.",
     unlockWithBiometric = "Unlock with Biometrics",
-    biometricPromptTitle = "Unlock My Family Doc",
+    biometricPromptTitle = "Unlock FAMVIORA",
     biometricPromptSubtitle = "Verify your fingerprint or face to open the family vault",
     cancel = "Cancel",
 
@@ -646,9 +737,9 @@ val EnglishStrings = AppStrings(
     checkExpiriesNow = "Check Expiries Now",
     backupSettingsLink = "Backup & Sync Center",
     privacyPolicy = "Privacy Policy",
-    privacyPolicyBody = "My Family Doc encrypts sensitive documents locally using AES-256-GCM backed by Android KeyStore. Cloud metadata is strictly isolated per Family ID via zero-trust Firebase Security Rules. One family can never access another family's records. Sample documents use synthetic demo values only.",
-    aboutApp = "About My Family Doc",
-    aboutAppBody = "My Family Doc v1.0\nAll Your Family Documents in One Place.\n\nBuilt with Kotlin, Jetpack Compose, Material 3, Android KeyStore AES-256-GCM Encryption, Cloud Firestore, Firebase Authentication, and Firebase Storage.",
+    privacyPolicyBody = "FAMVIORA encrypts sensitive documents locally using AES-256-GCM backed by Android KeyStore. Cloud metadata is strictly isolated per Family ID via zero-trust Firebase Security Rules. One family can never access another family's records. Sample documents use synthetic demo values only.",
+    aboutApp = "About FAMVIORA",
+    aboutAppBody = "FAMVIORA (ಫ್ಯಾಮ್ವಿಯೋರಾ) v1.0\nYour Family. Your Records. Your Care.\n\nBuilt with Kotlin, Jetpack Compose, Material 3, Android KeyStore AES-256-GCM Encryption, Cloud Firestore, Firebase Authentication, and Firebase Storage.",
     logout = "Logout",
     logoutConfirm = "Sign out of your account and lock this session?",
     close = "Close",
@@ -681,13 +772,14 @@ val EnglishStrings = AppStrings(
     retryCleanupButton = "Retry Cleanup",
     accountDeletedSuccessMessage = "Your account and associated data have been permanently deleted.",
 
-    updates = EnglishUpdateStrings
+    updates = EnglishUpdateStrings,
+    docActions = EnglishDocumentActionStrings
 )
 
 val KannadaStrings = AppStrings(
     languageCode = "kn",
-    appName = "ಮೈ ಫ್ಯಾಮಿಲಿ ಡಾಕ್",
-    tagline = "ನಿಮ್ಮ ಕುಟುಂಬದ ಎಲ್ಲಾ ದಾಖಲೆಗಳು ಒಂದೇ ಸ್ಥಳದಲ್ಲಿ.",
+    appName = "FAMVIORA",
+    tagline = "ನಿಮ್ಮ ಕುಟುಂಬ. ನಿಮ್ಮ ದಾಖಲೆಗಳು. ನಿಮ್ಮ ಕಾಳಜಿ.",
     navHome = "ಮುಖಪುಟ",
     navFamily = "ಕುಟುಂಬ",
     navDocuments = "ದಾಖಲೆಗಳು",
@@ -748,14 +840,14 @@ val KannadaStrings = AppStrings(
     verifyLinkGoogleButton = "ಪರಿಶೀಲಿಸಿ ಮತ್ತು Google ಲಿಂಕ್ ಮಾಡಿ",
     switchToEmailLoginHint = "ಇಮೇಲ್ ಲಾಗಿನ್‌ಗೆ ಬದಲಾಯಿಸಿ",
 
-    enterPinTitle = "ಮೈ ಫ್ಯಾಮಿಲಿ ಡಾಕ್ ಅನ್‌ಲಾಕ್ ಮಾಡಿ",
+    enterPinTitle = "FAMVIORA ಅನ್‌ಲಾಕ್ ಮಾಡಿ",
     setupPinTitle = "4-ಅಂಕಿಯ ವಾಲ್ಟ್ PIN ರಚಿಸಿ",
     confirmPinTitle = "ನಿಮ್ಮ 4-ಅಂಕಿಯ PIN ದೃಢೀಕರಿಸಿ",
     pinSubtitle = "ಎನ್‌ಕ್ರಿಪ್ಟ್ ಮಾಡಿದ ಕುಟುಂಬ ದಾಖಲೆಗಳನ್ನು ತೆರೆಯಲು 4-ಅಂಕಿಯ PIN ನಮೂದಿಸಿ.",
     pinMismatchError = "PIN ಹೊಂದಾಣಿಕೆಯಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
     wrongPinError = "ತಪ್ಪಾದ PIN. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
     unlockWithBiometric = "ಬಯೋಮೆಟ್ರಿಕ್ ಮೂಲಕ ಅನ್‌ಲಾಕ್ ಮಾಡಿ",
-    biometricPromptTitle = "ಮೈ ಫ್ಯಾಮಿಲಿ ಡಾಕ್ ಅನ್‌ಲಾಕ್",
+    biometricPromptTitle = "FAMVIORA ಅನ್‌ಲಾಕ್",
     biometricPromptSubtitle = "ಕುಟುಂಬ ವಾಲ್ಟ್ ತೆರೆಯಲು ನಿಮ್ಮ ಫಿಂಗರ್‌ಪ್ರಿಂಟ್ ಅಥವಾ ಮುಖವನ್ನು ಪರಿಶೀಲಿಸಿ",
     cancel = "ರದ್ದುಮಾಡಿ",
 
@@ -888,9 +980,9 @@ val KannadaStrings = AppStrings(
     checkExpiriesNow = "ಮುಕ್ತಾಯಗಳನ್ನು ಪರಿಶೀಲಿಸಿ",
     backupSettingsLink = "ಬ್ಯಾಕಪ್ ಮತ್ತು ಸಿಂಕ್ ಸೆಟ್ಟಿಂಗ್ಸ್",
     privacyPolicy = "ಗೌಪ್ಯತಾ ನೀತಿ",
-    privacyPolicyBody = "ಮೈ ಫ್ಯಾಮಿಲಿ ಡಾಕ್ Android KeyStore ಆಧಾರಿತ AES-256-GCM ಎನ್‌ಕ್ರಿಪ್ಶನ್ ಬಳಸುತ್ತದೆ. ಪ್ರತಿ ಕುಟುಂಬದ ಡೇಟಾವನ್ನು Firebase ಭದ್ರತಾ ನಿಯಮಗಳಿಂದ ಪ್ರತ್ಯೇಕಿಸಲಾಗಿದೆ.",
-    aboutApp = "ಅಪ್ಲಿಕೇಶನ್ ಬಗ್ಗೆ",
-    aboutAppBody = "ಮೈ ಫ್ಯಾಮಿಲಿ ಡಾಕ್ v1.0\nನಿಮ್ಮ ಕುಟುಂಬದ ಎಲ್ಲಾ ದಾಖಲೆಗಳು ಒಂದೇ ಸ್ಥಳದಲ್ಲಿ.\n\nKotlin, Jetpack Compose, Material 3, AES-256-GCM ಎನ್‌ಕ್ರಿಪ್ಶನ್, Cloud Firestore, Firebase Authentication ಮತ್ತು Firebase Storage ನೊಂದಿಗೆ ನಿರ್ಮಿಸಲಾಗಿದೆ.",
+    privacyPolicyBody = "FAMVIORA (ಫ್ಯಾಮ್ವಿಯೋರಾ) Android KeyStore ಆಧಾರಿತ AES-256-GCM ಎನ್‌ಕ್ರಿಪ್ಶನ್ ಬಳಸುತ್ತದೆ. ಪ್ರತಿ ಕುಟುಂಬದ ಡೇಟಾವನ್ನು Firebase ಭದ್ರತಾ ನಿಯಮಗಳಿಂದ ಪ್ರತ್ಯೇಕಿಸಲಾಗಿದೆ.",
+    aboutApp = "FAMVIORA ಬಗ್ಗೆ",
+    aboutAppBody = "FAMVIORA (ಫ್ಯಾಮ್ವಿಯೋರಾ) v1.0\nನಿಮ್ಮ ಕುಟುಂಬ. ನಿಮ್ಮ ದಾಖಲೆಗಳು. ನಿಮ್ಮ ಕಾಳಜಿ.\n\nKotlin, Jetpack Compose, Material 3, AES-256-GCM ಎನ್‌ಕ್ರಿಪ್ಶನ್, Cloud Firestore, Firebase Authentication ಮತ್ತು Firebase Storage ನೊಂದಿಗೆ ನಿರ್ಮಿಸಲಾಗಿದೆ.",
     logout = "ಲಾಗೌಟ್",
     logoutConfirm = "ನಿಮ್ಮ ಖಾತೆಯಿಂದ ಸೈನ್ ಔಟ್ ಆಗಿ ಈ ಸೆಷನ್ ಲಾಕ್ ಮಾಡುವುದೇ?",
     close = "ಮುಚ್ಚಿ",
@@ -923,7 +1015,8 @@ val KannadaStrings = AppStrings(
     retryCleanupButton = "ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ",
     accountDeletedSuccessMessage = "ನಿಮ್ಮ ಖಾತೆ ಮತ್ತು ಸಂಬಂಧಿತ ಡೇಟಾವನ್ನು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗಿದೆ.",
 
-    updates = KannadaUpdateStrings
+    updates = KannadaUpdateStrings,
+    docActions = KannadaDocumentActionStrings
 )
 
 fun stringsForLanguage(code: String): AppStrings =

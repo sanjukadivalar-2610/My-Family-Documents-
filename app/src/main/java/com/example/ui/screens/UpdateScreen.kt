@@ -177,6 +177,14 @@ fun UpdateScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
+                                        text = "${strings.appName} • ${strings.tagline}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = SkyAccent,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.testTag("update_brand_label")
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
                                         text = when {
                                             updateState.phase == UpdatePhase.CHECKING -> strings.checkingForUpdatesMessage
                                             updateState.hasUpdate -> strings.newUpdateAvailableTitle

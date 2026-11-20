@@ -37,6 +37,7 @@ class AppUpdateRepositoryTest {
 
     @Before
     fun setUp() {
+        clearFileProviderCache()
         context = ApplicationProvider.getApplicationContext()
         File(context.cacheDir, "updates").deleteRecursively()
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -48,6 +49,15 @@ class AppUpdateRepositoryTest {
     fun tearDown() {
         server.stop(0)
         File(context.cacheDir, "updates").deleteRecursively()
+        clearFileProviderCache()
+    }
+
+    private fun clearFileProviderCache() {
+        runCatching {
+            val field = androidx.core.content.FileProvider::class.java.getDeclaredField("sCache")
+            field.isAccessible = true
+            (field.get(null) as? MutableMap<*, *>)?.clear()
+        }
     }
 
     @Test

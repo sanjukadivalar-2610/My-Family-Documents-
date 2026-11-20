@@ -849,6 +849,32 @@ class FamilyVaultRepository(
         }
     }
 
+    suspend fun downloadEncryptedPayloadWithProgress(
+        storagePath: String,
+        tempDir: java.io.File,
+        onProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit
+    ): Result<ByteArray> {
+        requireUserId()
+        val storageClient = storage
+            ?: return Result.failure(IllegalStateException("Firebase Storage is not initialized."))
+        val tempFile = java.io.File(tempDir, "dl_${UUID.randomUUID()}.enc.part")
+        return try {
+            tempDir.mkdirs()
+            val task = storageClient.reference.child(storagePath).getFile(tempFile)
+            task.addOnProgressListener { snap ->
+                onProgress(snap.bytesTransferred, snap.totalByteCount)
+            }
+            task.await()
+            Result.success(tempFile.readBytes())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        } finally {
+            runCatching { if (tempFile.exists()) tempFile.delete() }
+        }
+    }
+
     suspend fun markBackupTimestamp(familyId: String): Result<Unit> {
         requireUserId()
         val famRef = db.collection("families").document(familyId)

@@ -1,6 +1,6 @@
 {
-  "name": "My Family Doc",
-  "description": "All Your Family Documents in One Place. Secure bilingual family document vault with Cloud Firestore, Firebase Storage, local encryption, and biometric lock.",
+  "name": "FAMVIORA",
+  "description": "Your Family. Your Records. Your Care. Secure bilingual family document vault with Cloud Firestore, Firebase Storage, local encryption, and biometric lock.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -23,12 +23,12 @@ android {
     buildConfigField(
       "String",
       "VERSION_JSON_URL",
-      "\"https://github.com/sanjukadivalar-2610/My-Family-Doc/releases/download/debug-latest/version.json\""
+      "\"https://github.com/sanjukadivalar-2610/My-Family-Documents/releases/download/debug-latest/version.json\""
     )
     buildConfigField(
       "String",
       "VERSION_JSON_FALLBACK_URL",
-      "\"https://raw.githubusercontent.com/sanjukadivalar-2610/My-Family-Doc/main/version.json\""
+      "\"https://raw.githubusercontent.com/sanjukadivalar-2610/My-Family-Documents/main/version.json\""
     )
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

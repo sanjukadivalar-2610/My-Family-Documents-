@@ -166,6 +166,13 @@ fun SettingsScreen(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${strings.appName} (${strings.docActions.brandPronunciationKn}) • ${strings.tagline}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("settings_brand_subtitle")
+                    )
                 }
             }
         }

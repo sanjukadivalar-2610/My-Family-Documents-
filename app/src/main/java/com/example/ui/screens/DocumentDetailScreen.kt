@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
@@ -8,7 +7,6 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -35,6 +33,7 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -55,10 +54,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -82,10 +81,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import com.example.data.documents.DocumentTransferManager
+import com.example.data.documents.DocumentTransferState
 import com.example.domain.model.EffectiveCloudConfig
 import com.example.domain.model.FamilyDocument
 import com.example.domain.model.FamilyMember
 import com.example.localization.LocalAppStrings
+import com.example.ui.components.CreateDocumentWithMimeContract
+import com.example.ui.components.DocumentMoreActionsSheet
+import com.example.ui.components.DocumentTransferBanner
+import com.example.ui.components.DownloadDestinationDialog
 import com.example.ui.components.ExpiryStatusPill
 import com.example.ui.components.formatDateMillis
 import com.example.ui.components.formatFileSize
@@ -103,13 +108,21 @@ fun DocumentDetailScreen(
     members: List<FamilyMember>,
     isAdmin: Boolean,
     loadDecryptedBytes: suspend (FamilyDocument) -> ByteArray?,
-    prepareShareFile: suspend (FamilyDocument) -> File?,
-    onExportToUri: (FamilyDocument, Uri) -> Unit,
+    prepareShareFile: suspend (FamilyDocument) -> File? = { null },
+    onExportToUri: (FamilyDocument, Uri) -> Unit = { _, _ -> },
     onRenameAndUpdateDates: (FamilyDocument, String, Long, Long, String?, String?) -> Unit,
     onUpdatePermissions: (FamilyDocument, List<String>) -> Unit,
     onDeleteDocument: (FamilyDocument) -> Unit,
     onBack: () -> Unit,
-    cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig()
+    cloudConfig: EffectiveCloudConfig = EffectiveCloudConfig(),
+    transferState: DocumentTransferState? = null,
+    onShare: (() -> Unit)? = null,
+    onDownloadToDownloads: (() -> Unit)? = null,
+    onDownloadToSafUri: ((Uri) -> Unit)? = null,
+    onOpenWith: (() -> Unit)? = null,
+    onCopyLink: (() -> Unit)? = null,
+    onOpenSavedFile: ((Uri, String) -> Unit)? = null,
+    onDismissTransferState: (() -> Unit)? = null
 ) {
     val strings = LocalAppStrings.current
     val context = LocalContext.current
@@ -121,16 +134,74 @@ fun DocumentDetailScreen(
     var isLoadingPreview by remember(document.id) { mutableStateOf(true) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showMoreActionsSheet by remember { mutableStateOf(false) }
+    var showDownloadDestinationDialog by remember { mutableStateOf(false) }
     var zoomScale by remember { mutableFloatStateOf(1f) }
 
-    val mimeType = if (document.fileType == "pdf") "application/pdf"
-    else if (document.fileType == "png") "image/png" else "image/jpeg"
+    val mimeType = DocumentTransferManager.resolveMimeType(document)
+    val safeFileName = DocumentTransferManager.buildSafeFileName(document)
 
     val createDocLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument(mimeType)
+        contract = CreateDocumentWithMimeContract()
     ) { uri ->
         if (uri != null) {
-            onExportToUri(document, uri)
+            if (onDownloadToSafUri != null) {
+                onDownloadToSafUri(uri)
+            } else {
+                onExportToUri(document, uri)
+            }
+        }
+    }
+
+    fun triggerShare() {
+        if (onShare != null) {
+            onShare()
+        } else {
+            scope.launch {
+                val file = prepareShareFile(document) ?: return@launch
+                val contentUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+                val shareIntent = DocumentTransferManager.buildSingleShareIntent(
+                    context = context,
+                    doc = document,
+                    contentUri = contentUri,
+                    chooserTitle = strings.shareDocument
+                )
+                runCatching { context.startActivity(shareIntent) }
+            }
+        }
+    }
+
+    fun triggerOpenWith() {
+        if (onOpenWith != null) {
+            onOpenWith()
+        } else {
+            scope.launch {
+                val file = prepareShareFile(document) ?: return@launch
+                val contentUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+                val openIntent = DocumentTransferManager.buildOpenWithIntent(
+                    context = context,
+                    contentUri = contentUri,
+                    mimeType = mimeType,
+                    chooserTitle = strings.docActions.openWithLabel
+                )
+                runCatching { context.startActivity(openIntent) }
+            }
+        }
+    }
+
+    fun triggerDownload() {
+        if (onDownloadToDownloads != null) {
+            showDownloadDestinationDialog = true
+        } else {
+            createDocLauncher.launch(safeFileName to mimeType)
         }
     }
 
@@ -172,12 +243,25 @@ fun DocumentDetailScreen(
                     }
                     IconButton(
                         onClick = { showDeleteDialog = true },
-                        modifier = Modifier.testTag("detail_delete_button")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("detail_delete_button")
                     ) {
                         Icon(
                             Icons.Rounded.DeleteOutline,
                             contentDescription = strings.deleteDocument,
                             tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    IconButton(
+                        onClick = { showMoreActionsSheet = true },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("detail_more_actions_button")
+                    ) {
+                        Icon(
+                            Icons.Rounded.MoreVert,
+                            contentDescription = strings.docActions.moreActionsLabel
                         )
                     }
                 }
@@ -278,7 +362,7 @@ fun DocumentDetailScreen(
                 }
             }
 
-            // Action Buttons (Download / Share / Edit Dates)
+            // Action Buttons (Download / Share)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -286,39 +370,33 @@ fun DocumentDetailScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Button(
-                    onClick = { createDocLauncher.launch(document.fileName) },
+                    onClick = { triggerDownload() },
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary, contentColor = PureWhite),
                     modifier = Modifier.weight(1f).height(48.dp).testTag("detail_download_button")
                 ) {
                     Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(strings.downloadDocument, maxLines = 1)
+                    Text(strings.docActions.downloadAction, maxLines = 1)
                 }
                 OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            val file = prepareShareFile(document) ?: return@launch
-                            val contentUri = FileProvider.getUriForFile(
-                                context,
-                                "${context.packageName}.fileprovider",
-                                file
-                            )
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = mimeType
-                                putExtra(Intent.EXTRA_STREAM, contentUri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, strings.shareDocument))
-                        }
-                    },
+                    onClick = { triggerShare() },
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.weight(1f).height(48.dp).testTag("detail_share_button")
                 ) {
                     Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(strings.shareDocument, maxLines = 1)
+                    Text(strings.docActions.shareAction, maxLines = 1)
                 }
+            }
+
+            if (transferState != null) {
+                DocumentTransferBanner(
+                    transferState = transferState,
+                    onOpenFile = { uri, mime -> onOpenSavedFile?.invoke(uri, mime) },
+                    onDismiss = { onDismissTransferState?.invoke() },
+                    modifier = Modifier.widthIn(max = 920.dp)
+                )
             }
 
             // Metadata Card
@@ -442,6 +520,32 @@ fun DocumentDetailScreen(
                     Text(strings.cancel)
                 }
             }
+        )
+    }
+
+    if (showDownloadDestinationDialog) {
+        DownloadDestinationDialog(
+            targetLabel = safeFileName,
+            onSaveToDownloads = {
+                showDownloadDestinationDialog = false
+                onDownloadToDownloads?.invoke()
+            },
+            onChooseFolder = {
+                showDownloadDestinationDialog = false
+                createDocLauncher.launch(safeFileName to mimeType)
+            },
+            onDismiss = { showDownloadDestinationDialog = false }
+        )
+    }
+
+    if (showMoreActionsSheet) {
+        DocumentMoreActionsSheet(
+            document = document,
+            onDismiss = { showMoreActionsSheet = false },
+            onShare = { triggerShare() },
+            onDownload = { triggerDownload() },
+            onOpenWith = { triggerOpenWith() },
+            onCopyLink = { onCopyLink?.invoke() }
         )
     }
 }

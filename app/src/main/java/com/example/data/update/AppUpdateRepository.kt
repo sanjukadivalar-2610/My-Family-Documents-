@@ -209,7 +209,7 @@ class HttpUrlConnectionUpdateTransport : UpdateHttpTransport {
                 useCaches = false
                 setRequestProperty("Cache-Control", "no-cache")
                 setRequestProperty("Pragma", "no-cache")
-                setRequestProperty("User-Agent", "MyFamilyDoc-Updater/${BuildConfig.VERSION_NAME}")
+                setRequestProperty("User-Agent", "FAMVIORA-Updater/${BuildConfig.VERSION_NAME}")
             }
             val status = conn.responseCode
             if (status in listOf(301, 302, 303, 307, 308)) {

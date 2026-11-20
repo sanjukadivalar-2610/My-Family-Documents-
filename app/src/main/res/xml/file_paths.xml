@@ -3,4 +3,5 @@
     <cache-path name="shared_docs" path="exports/" />
     <cache-path name="camera_scans" path="scans/" />
     <cache-path name="apk_updates" path="updates/" />
+    <external-files-path name="app_downloads" path="Download/" />
 </paths>
