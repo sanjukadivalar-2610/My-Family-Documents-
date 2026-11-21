@@ -1,7 +1,5 @@
 package com.example.ui.auth
 
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,6 +22,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.PhonelinkLock
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -35,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,8 +46,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.fragment.app.FragmentActivity
+import com.example.data.security.AndroidBiometricGateway
+import com.example.data.security.BiometricGateway
+import com.example.data.security.BiometricPromptOutcome
+import com.example.data.security.BiometricSupportStatus
+import com.example.data.security.findFragmentActivity
+import com.example.data.security.toFeedback
 import com.example.localization.LocalAppStrings
 import com.example.ui.theme.NavyPrimary
 import com.example.ui.theme.PureWhite
@@ -62,51 +68,100 @@ fun PinLockScreen(
     biometricEnabled: Boolean,
     verifyPin: suspend (String) -> Boolean,
     onPinVerifiedOrSaved: (String) -> Unit,
-    onCancelSetup: (() -> Unit)? = null
+    onCancelSetup: (() -> Unit)? = null,
+    pinEnabled: Boolean = true,
+    biometricGateway: BiometricGateway = AndroidBiometricGateway,
+    onSignOut: (() -> Unit)? = null
 ) {
     val strings = LocalAppStrings.current
     val context = LocalContext.current
-    val activity = context as? FragmentActivity
+    val activity = remember(context) { context.findFragmentActivity() }
+
+    val currentStrings by rememberUpdatedState(strings)
+    val currentOnVerified by rememberUpdatedState(onPinVerifiedOrSaved)
 
     var enteredPin by remember { mutableStateOf("") }
     var firstPinForSetup by remember { mutableStateOf<String?>(null) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var pendingVerify by remember { mutableStateOf<String?>(null) }
+    var autoPromptLaunched by remember(mode, biometricEnabled) { mutableStateOf(false) }
 
-    val canUseBiometric = remember(activity, biometricEnabled) {
-        if (!biometricEnabled || activity == null || mode != PinMode.UNLOCK) return@remember false
-        val mgr = BiometricManager.from(activity)
-        mgr.canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
-        ) == BiometricManager.BIOMETRIC_SUCCESS
+    val supportStatus = remember(activity, biometricEnabled, mode, biometricGateway) {
+        if (!biometricEnabled || activity == null || mode != PinMode.UNLOCK) {
+            BiometricSupportStatus.NO_HARDWARE
+        } else {
+            biometricGateway.checkSupport(activity)
+        }
+    }
+    val canUseBiometric = supportStatus == BiometricSupportStatus.AVAILABLE
+    val canUseDeviceCredential = remember(context, biometricEnabled, mode, pinEnabled, biometricGateway) {
+        mode == PinMode.UNLOCK && biometricEnabled && !pinEnabled && biometricGateway.isDeviceCredentialSecure(context)
     }
 
-    val launchBiometric: () -> Unit = remember(activity) {
-        {
-            if (activity != null) {
-                val executor = ContextCompat.getMainExecutor(activity)
-                val prompt = BiometricPrompt(
-                    activity,
-                    executor,
-                    object : BiometricPrompt.AuthenticationCallback() {
-                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                            onPinVerifiedOrSaved("")
+    val launchBiometric: (Boolean) -> Unit = remember(
+        activity,
+        pinEnabled,
+        biometricEnabled,
+        supportStatus,
+        biometricGateway
+    ) {
+        { allowDeviceCredential ->
+            if (activity == null) {
+                errorMsg = currentStrings.biometricNotSupportedMessage
+            } else if (!allowDeviceCredential && supportStatus != BiometricSupportStatus.AVAILABLE) {
+                errorMsg = supportStatus.toFeedback(currentStrings)?.message
+                    ?: currentStrings.biometricNotSupportedMessage
+            } else {
+                biometricGateway.authenticate(
+                    activity = activity,
+                    title = currentStrings.biometricPromptTitle,
+                    subtitle = currentStrings.biometricPromptSubtitle,
+                    negativeButtonText = if (pinEnabled) currentStrings.useAppPinFallback else currentStrings.cancel,
+                    allowDeviceCredentialFallback = allowDeviceCredential
+                ) { outcome ->
+                    when (outcome) {
+                        BiometricPromptOutcome.Succeeded -> {
+                            errorMsg = null
+                            currentOnVerified("")
+                        }
+
+                        BiometricPromptOutcome.FailedAttempt -> {
+                            errorMsg = currentStrings.biometricAuthFailedMessage
+                        }
+
+                        BiometricPromptOutcome.Cancelled -> {
+                            if (!pinEnabled) {
+                                errorMsg = currentStrings.biometricAuthCancelledMessage
+                            }
+                        }
+
+                        is BiometricPromptOutcome.Error -> {
+                            errorMsg = currentStrings.biometricAuthFailedMessage
                         }
                     }
-                )
-                val promptInfo = BiometricPrompt.PromptInfo.Builder()
-                    .setTitle(strings.biometricPromptTitle)
-                    .setSubtitle(strings.biometricPromptSubtitle)
-                    .setNegativeButtonText(strings.cancel)
-                    .build()
-                prompt.authenticate(promptInfo)
+                }
             }
         }
     }
 
-    LaunchedEffect(canUseBiometric) {
-        if (canUseBiometric) {
-            launchBiometric()
+    LaunchedEffect(
+        mode,
+        biometricEnabled,
+        pinEnabled,
+        canUseBiometric,
+        canUseDeviceCredential,
+        supportStatus
+    ) {
+        if (!autoPromptLaunched && mode == PinMode.UNLOCK && biometricEnabled) {
+            if (canUseBiometric) {
+                autoPromptLaunched = true
+                launchBiometric(false)
+            } else if (!pinEnabled && canUseDeviceCredential) {
+                autoPromptLaunched = true
+                launchBiometric(true)
+            } else if (!pinEnabled && supportStatus != BiometricSupportStatus.AVAILABLE) {
+                errorMsg = supportStatus.toFeedback(currentStrings)?.message
+            }
         }
     }
 
@@ -114,9 +169,10 @@ fun PinLockScreen(
         val candidate = pendingVerify ?: return@LaunchedEffect
         val valid = verifyPin(candidate)
         if (valid) {
-            onPinVerifiedOrSaved(candidate)
+            errorMsg = null
+            currentOnVerified(candidate)
         } else {
-            errorMsg = strings.wrongPinError
+            errorMsg = currentStrings.wrongPinError
             enteredPin = ""
         }
         pendingVerify = null
@@ -136,9 +192,9 @@ fun PinLockScreen(
                     firstPinForSetup = updated
                     enteredPin = ""
                 } else if (first == updated) {
-                    onPinVerifiedOrSaved(updated)
+                    currentOnVerified(updated)
                 } else {
-                    errorMsg = strings.pinMismatchError
+                    errorMsg = currentStrings.pinMismatchError
                     firstPinForSetup = null
                     enteredPin = ""
                 }
@@ -146,11 +202,14 @@ fun PinLockScreen(
         }
     }
 
+    val showPinKeypad = mode == PinMode.SETUP_OR_CHANGE || pinEnabled
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .systemBarsPadding(),
+            .systemBarsPadding()
+            .testTag("vault_lock_screen"),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -168,7 +227,7 @@ fun PinLockScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Lock,
+                    imageVector = if (showPinKeypad) Icons.Rounded.Lock else Icons.Rounded.Fingerprint,
                     contentDescription = strings.appPinLock,
                     tint = SkyAccent,
                     modifier = Modifier.size(30.dp)
@@ -188,7 +247,7 @@ fun PinLockScreen(
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = strings.pinSubtitle,
+                text = if (showPinKeypad) strings.pinSubtitle else strings.biometricLockSubtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -196,19 +255,24 @@ fun PinLockScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 4-dot PIN indicator
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                repeat(4) { index ->
-                    val filled = index < enteredPin.length
-                    Surface(
-                        modifier = Modifier.size(18.dp),
-                        shape = CircleShape,
-                        color = if (filled) NavyPrimary else MaterialTheme.colorScheme.surface,
-                        border = BorderStroke(
-                            2.dp,
-                            if (filled) SkyAccent else MaterialTheme.colorScheme.outline
-                        )
-                    ) {}
+            if (showPinKeypad) {
+                // 4-dot PIN indicator
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.testTag("pin_dots_row")
+                ) {
+                    repeat(4) { index ->
+                        val filled = index < enteredPin.length
+                        Surface(
+                            modifier = Modifier.size(18.dp),
+                            shape = CircleShape,
+                            color = if (filled) NavyPrimary else MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(
+                                2.dp,
+                                if (filled) SkyAccent else MaterialTheme.colorScheme.outline
+                            )
+                        ) {}
+                    }
                 }
             }
 
@@ -218,88 +282,145 @@ fun PinLockScreen(
                     text = errorMsg!!,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("pin_lock_error_text")
                 )
-            } else {
+            } else if (showPinKeypad) {
                 Spacer(modifier = Modifier.height(34.dp))
             }
 
-            // Keypad 1..9, Biometric/Empty, 0, Backspace
-            val rows = listOf(
-                listOf("1", "2", "3"),
-                listOf("4", "5", "6"),
-                listOf("7", "8", "9"),
-                listOf("BIO", "0", "DEL")
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                rows.forEach { row ->
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        row.forEach { key ->
-                            when (key) {
-                                "BIO" -> {
-                                    if (canUseBiometric) {
+            if (showPinKeypad) {
+                // Keypad 1..9, Biometric/Empty, 0, Backspace
+                val rows = listOf(
+                    listOf("1", "2", "3"),
+                    listOf("4", "5", "6"),
+                    listOf("7", "8", "9"),
+                    listOf("BIO", "0", "DEL")
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    rows.forEach { row ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            row.forEach { key ->
+                                when (key) {
+                                    "BIO" -> {
+                                        if (canUseBiometric) {
+                                            PinKeyButton(
+                                                onClick = { launchBiometric(false) },
+                                                tag = "pin_biometric_button"
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Fingerprint,
+                                                    contentDescription = strings.unlockWithBiometric,
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        } else {
+                                            Spacer(modifier = Modifier.size(72.dp))
+                                        }
+                                    }
+
+                                    "DEL" -> {
                                         PinKeyButton(
-                                            onClick = launchBiometric,
-                                            tag = "pin_biometric_button"
+                                            onClick = {
+                                                if (enteredPin.isNotEmpty()) {
+                                                    enteredPin = enteredPin.dropLast(1)
+                                                }
+                                            },
+                                            tag = "pin_backspace_button"
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Rounded.Fingerprint,
-                                                contentDescription = strings.unlockWithBiometric,
-                                                tint = MaterialTheme.colorScheme.primary
+                                                imageVector = Icons.AutoMirrored.Rounded.Backspace,
+                                                contentDescription = "Backspace",
+                                                tint = MaterialTheme.colorScheme.onSurface
                                             )
                                         }
-                                    } else {
-                                        Spacer(modifier = Modifier.size(72.dp))
                                     }
-                                }
-                                "DEL" -> {
-                                    PinKeyButton(
-                                        onClick = {
-                                            if (enteredPin.isNotEmpty()) {
-                                                enteredPin = enteredPin.dropLast(1)
-                                            }
-                                        },
-                                        tag = "pin_backspace_button"
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Rounded.Backspace,
-                                            contentDescription = "Backspace",
-                                            tint = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
-                                else -> {
-                                    PinKeyButton(
-                                        onClick = { onDigit(key) },
-                                        tag = "pin_key_$key"
-                                    ) {
-                                        Text(
-                                            text = key,
-                                            style = MaterialTheme.typography.headlineSmall,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
+
+                                    else -> {
+                                        PinKeyButton(
+                                            onClick = { onDigit(key) },
+                                            tag = "pin_key_$key"
+                                        ) {
+                                            Text(
+                                                text = key,
+                                                style = MaterialTheme.typography.headlineSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            if (canUseBiometric) {
-                Spacer(modifier = Modifier.height(16.dp))
-                OutlinedButton(
-                    onClick = launchBiometric,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.testTag("unlock_biometric_cta")
+                if (canUseBiometric) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedButton(
+                        onClick = { launchBiometric(false) },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.testTag("unlock_biometric_cta")
+                    ) {
+                        Icon(Icons.Rounded.Fingerprint, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(strings.unlockWithBiometric)
+                    }
+                }
+            } else {
+                // Biometric-only lock screen (when App PIN is not yet configured)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("biometric_lock_only_container"),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Rounded.Fingerprint, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(strings.unlockWithBiometric)
+                    if (canUseBiometric) {
+                        Button(
+                            onClick = { launchBiometric(false) },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NavyPrimary,
+                                contentColor = PureWhite
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .testTag("unlock_biometric_cta")
+                        ) {
+                            Icon(Icons.Rounded.Fingerprint, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(strings.unlockWithBiometric, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (canUseDeviceCredential) {
+                        OutlinedButton(
+                            onClick = { launchBiometric(true) },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("unlock_device_credential_button")
+                        ) {
+                            Icon(Icons.Rounded.PhonelinkLock, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(strings.unlockWithDeviceCredential, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    if (onSignOut != null) {
+                        TextButton(
+                            onClick = onSignOut,
+                            modifier = Modifier.testTag("lock_sign_out_button")
+                        ) {
+                            Text(strings.signOutDifferentAccount)
+                        }
+                    }
                 }
             }
 

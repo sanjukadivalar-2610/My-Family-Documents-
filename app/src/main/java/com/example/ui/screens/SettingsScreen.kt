@@ -77,8 +77,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.data.firebase.AdminDeleteAction
+import com.example.data.security.BiometricUiFeedback
 import com.example.data.security.SecuritySettings
 import com.example.data.security.ThemeMode
+import com.example.data.security.buildBiometricEnrollIntent
 import com.example.domain.model.FamilyAccount
 import com.example.domain.model.FamilyMember
 import com.example.domain.model.UserProfile
@@ -118,7 +120,9 @@ fun SettingsScreen(
     onConfirmDeleteAccount: (AdminDeleteAction, String?) -> Unit = { _, _ -> },
     hasUpdateAvailable: Boolean = false,
     installedVersionLabel: String = "v1.0 (1)",
-    onOpenUpdates: () -> Unit = {}
+    onOpenUpdates: () -> Unit = {},
+    biometricFeedback: BiometricUiFeedback? = null,
+    onOpenDeviceBiometricSettings: (() -> Unit)? = null
 ) {
     val strings = LocalAppStrings.current
     val context = LocalContext.current
@@ -463,18 +467,109 @@ fun SettingsScreen(
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 Icon(Icons.Rounded.Fingerprint, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = strings.biometricUnlock,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                                Column {
+                                    Text(
+                                        text = strings.biometricUnlock,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = if (securitySettings.biometricEnabled) {
+                                            strings.biometricSubtitleOn
+                                        } else {
+                                            strings.biometricSubtitleOff
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
+                            Spacer(modifier = Modifier.width(8.dp))
                             Switch(
                                 checked = securitySettings.biometricEnabled,
-                                enabled = securitySettings.pinEnabled,
+                                enabled = !isAccountActionBusy,
                                 onCheckedChange = onToggleBiometric,
                                 modifier = Modifier.testTag("settings_biometric_switch")
                             )
+                        }
+
+                        if (biometricFeedback != null) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (biometricFeedback.isError) {
+                                    MaterialTheme.colorScheme.errorContainer
+                                } else {
+                                    SkySoft
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("settings_biometric_feedback")
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = biometricFeedback.message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (biometricFeedback.isError) {
+                                            MaterialTheme.colorScheme.onErrorContainer
+                                        } else {
+                                            NavyPrimary
+                                        }
+                                    )
+                                    if (biometricFeedback.needsEnrollmentAction) {
+                                        TextButton(
+                                            onClick = {
+                                                if (onOpenDeviceBiometricSettings != null) {
+                                                    onOpenDeviceBiometricSettings()
+                                                } else {
+                                                    runCatching {
+                                                        context.startActivity(buildBiometricEnrollIntent(context))
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.testTag("settings_biometric_enroll_button")
+                                        ) {
+                                            Text(
+                                                text = strings.biometricOpenAndroidSettingsAction,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (securitySettings.biometricEnabled && !securitySettings.pinEnabled) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = SkySoft.copy(alpha = 0.7f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("settings_biometric_pin_tip")
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = strings.setPinFallbackPrompt,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TextButton(
+                                        onClick = onSetupOrChangePin,
+                                        modifier = Modifier.testTag("settings_biometric_set_pin_button")
+                                    ) {
+                                        Text(strings.setPinFallbackAction, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
                         }
                     }
                 }

@@ -123,7 +123,8 @@ fun DocumentsScreen(
     onDownloadSingleToSafUri: ((FamilyDocument, Uri) -> Unit)? = null,
     onDownloadMultipleToTreeUri: ((List<FamilyDocument>, Uri) -> Unit)? = null,
     onOpenSavedFile: ((Uri, String) -> Unit)? = null,
-    onDismissTransferState: (() -> Unit)? = null
+    onDismissTransferState: (() -> Unit)? = null,
+    onExternalPickerLaunching: () -> Unit = {}
 ) {
     val strings = LocalAppStrings.current
     val docStrings = strings.docActions
@@ -547,12 +548,14 @@ fun DocumentsScreen(
                 if (targetDocs.size == 1) {
                     val single = targetDocs.first()
                     pendingSafSingleDoc = single
+                    onExternalPickerLaunching()
                     safCreateSingleLauncher.launch(
                         DocumentTransferManager.buildSafeFileName(single) to
                             DocumentTransferManager.resolveMimeType(single)
                     )
                 } else {
                     pendingSafTreeDocs = targetDocs
+                    onExternalPickerLaunching()
                     safFolderTreeLauncher.launch(null)
                 }
                 isSelectionMode = false
@@ -578,6 +581,7 @@ fun DocumentsScreen(
                 Button(
                     onClick = {
                         showUploadSourceSheet = false
+                        onExternalPickerLaunching()
                         pdfPicker.launch(arrayOf("application/pdf"))
                     },
                     shape = RoundedCornerShape(14.dp),
@@ -591,6 +595,7 @@ fun DocumentsScreen(
                 Button(
                     onClick = {
                         showUploadSourceSheet = false
+                        onExternalPickerLaunching()
                         imagePicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )

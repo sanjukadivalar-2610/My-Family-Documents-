@@ -11,6 +11,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
 import android.util.Log
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.documents.DocumentTransferManager
@@ -18,10 +19,16 @@ import com.example.data.documents.DocumentTransferState
 import com.example.data.firebase.CloudConfigRepository
 import com.example.data.firebase.FamilyVaultRepository
 import com.example.data.sample.SampleDocumentFactory
+import com.example.data.security.AndroidBiometricGateway
+import com.example.data.security.BiometricGateway
+import com.example.data.security.BiometricPromptOutcome
+import com.example.data.security.BiometricSupportStatus
+import com.example.data.security.BiometricUiFeedback
 import com.example.data.security.DocumentCryptoManager
 import com.example.data.security.SecurityPreferences
 import com.example.data.security.SecuritySettings
 import com.example.data.security.ThemeMode
+import com.example.data.security.toFeedback
 import com.example.domain.model.BackupStatusInfo
 import com.example.domain.model.CloudCategoryItem
 import com.example.domain.model.EffectiveCloudConfig
@@ -31,6 +38,7 @@ import com.example.domain.model.FamilyMember
 import com.example.domain.model.SyncState
 import com.example.domain.model.UiState
 import com.example.domain.model.UserProfile
+import com.example.localization.AppStrings
 import com.example.worker.ExpiryNotificationHelper
 import com.example.worker.VaultWorkScheduler
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -48,6 +56,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -81,15 +90,26 @@ class MainViewModel(
     private val inFlightDownloadDocIds = mutableSetOf<String>()
     private val observedSessionDocIds = mutableSetOf<String>()
 
+    private val _biometricUiFeedback = MutableStateFlow<BiometricUiFeedback?>(null)
+    val biometricUiFeedback: StateFlow<BiometricUiFeedback?> = _biometricUiFeedback.asStateFlow()
+
+    private val _isSecuritySettingsLoaded = MutableStateFlow(false)
+    val isSecuritySettingsLoaded: StateFlow<Boolean> = _isSecuritySettingsLoaded.asStateFlow()
+
     val securitySettings: StateFlow<SecuritySettings> = securityPreferences.settingsFlow
+        .onEach { _isSecuritySettingsLoaded.value = true }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
+            started = SharingStarted.Eagerly,
             initialValue = SecuritySettings()
         )
 
     private val _isVaultUnlocked = MutableStateFlow(false)
     val isVaultUnlocked: StateFlow<Boolean> = _isVaultUnlocked.asStateFlow()
+
+    @Volatile
+    var isBiometricPromptActive: Boolean = false
+        private set
 
     val isOnline: StateFlow<Boolean> = observeNetworkOnline(appContext)
         .stateIn(
@@ -358,8 +378,16 @@ class MainViewModel(
         _statusMessage.value = null
     }
 
+    fun clearBiometricUiFeedback() {
+        _biometricUiFeedback.value = null
+    }
+
     fun unlockVault() {
         _isVaultUnlocked.value = true
+    }
+
+    fun lockVault() {
+        _isVaultUnlocked.value = false
     }
 
     fun setLanguage(code: String) {
@@ -393,6 +421,108 @@ class MainViewModel(
     fun setBiometricEnabled(enabled: Boolean) {
         viewModelScope.launch {
             securityPreferences.setBiometricEnabled(enabled)
+        }
+    }
+
+    fun handleBiometricToggleRequest(
+        requestedEnabled: Boolean,
+        activity: FragmentActivity?,
+        strings: AppStrings,
+        gateway: BiometricGateway = AndroidBiometricGateway
+    ) {
+        if (!requestedEnabled) {
+            viewModelScope.launch {
+                securityPreferences.setBiometricEnabled(false)
+            }
+            _biometricUiFeedback.value = BiometricUiFeedback(
+                message = strings.biometricDisabledSuccessMessage,
+                isError = false,
+                needsEnrollmentAction = false
+            )
+            _statusMessage.value = strings.biometricDisabledSuccessMessage
+            return
+        }
+
+        if (activity == null) {
+            viewModelScope.launch {
+                securityPreferences.setBiometricEnabled(false)
+            }
+            val fb = BiometricSupportStatus.UNKNOWN.toFeedback(strings)
+            _biometricUiFeedback.value = fb
+            _statusMessage.value = fb?.message ?: strings.biometricNotSupportedMessage
+            return
+        }
+
+        val supportStatus = gateway.checkSupport(activity)
+        if (supportStatus != BiometricSupportStatus.AVAILABLE) {
+            viewModelScope.launch {
+                securityPreferences.setBiometricEnabled(false)
+            }
+            val fb = supportStatus.toFeedback(strings)
+            _biometricUiFeedback.value = fb
+            _statusMessage.value = fb?.message ?: strings.biometricNotSupportedMessage
+            return
+        }
+
+        _biometricUiFeedback.value = null
+        isBiometricPromptActive = true
+        gateway.authenticate(
+            activity = activity,
+            title = strings.biometricEnablePromptTitle,
+            subtitle = strings.biometricEnablePromptSubtitle,
+            negativeButtonText = strings.cancel,
+            allowDeviceCredentialFallback = false
+        ) { outcome ->
+            when (outcome) {
+                BiometricPromptOutcome.Succeeded -> {
+                    isBiometricPromptActive = false
+                    _isVaultUnlocked.value = true
+                    viewModelScope.launch {
+                        securityPreferences.setBiometricEnabled(true)
+                    }
+                    _biometricUiFeedback.value = BiometricUiFeedback(
+                        message = strings.biometricEnabledSuccessMessage,
+                        isError = false,
+                        needsEnrollmentAction = false
+                    )
+                    _statusMessage.value = strings.biometricEnabledSuccessMessage
+                }
+
+                BiometricPromptOutcome.FailedAttempt -> {
+                    _biometricUiFeedback.value = BiometricUiFeedback(
+                        message = strings.biometricAuthFailedMessage,
+                        isError = true,
+                        needsEnrollmentAction = false
+                    )
+                    _statusMessage.value = strings.biometricAuthFailedMessage
+                }
+
+                BiometricPromptOutcome.Cancelled -> {
+                    isBiometricPromptActive = false
+                    viewModelScope.launch {
+                        securityPreferences.setBiometricEnabled(false)
+                    }
+                    _biometricUiFeedback.value = BiometricUiFeedback(
+                        message = strings.biometricAuthCancelledMessage,
+                        isError = false,
+                        needsEnrollmentAction = false
+                    )
+                    _statusMessage.value = strings.biometricAuthCancelledMessage
+                }
+
+                is BiometricPromptOutcome.Error -> {
+                    isBiometricPromptActive = false
+                    viewModelScope.launch {
+                        securityPreferences.setBiometricEnabled(false)
+                    }
+                    _biometricUiFeedback.value = BiometricUiFeedback(
+                        message = strings.biometricAuthFailedMessage,
+                        isError = true,
+                        needsEnrollmentAction = false
+                    )
+                    _statusMessage.value = strings.biometricAuthFailedMessage
+                }
+            }
         }
     }
 

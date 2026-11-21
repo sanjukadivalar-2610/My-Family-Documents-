@@ -79,6 +79,28 @@ data class DocumentActionStrings(
     val noAppAvailableMessage: String
 )
 
+data class BiometricStrings(
+    val biometricSubtitleOff: String,
+    val biometricSubtitleOn: String,
+    val biometricEnablePromptTitle: String,
+    val biometricEnablePromptSubtitle: String,
+    val biometricNotSupportedMessage: String,
+    val biometricHwUnavailableMessage: String,
+    val biometricNoneEnrolledMessage: String,
+    val biometricSecurityUpdateRequiredMessage: String,
+    val biometricStatusUnknownMessage: String,
+    val biometricAuthFailedMessage: String,
+    val biometricAuthCancelledMessage: String,
+    val biometricEnabledSuccessMessage: String,
+    val biometricDisabledSuccessMessage: String,
+    val biometricOpenAndroidSettingsAction: String,
+    val useAppPinFallback: String,
+    val biometricLockSubtitle: String,
+    val unlockWithDeviceCredential: String,
+    val setPinFallbackPrompt: String,
+    val setPinFallbackAction: String
+)
+
 data class AppStrings(
     val languageCode: String,
     val appName: String,
@@ -329,10 +351,30 @@ data class AppStrings(
     val retryCleanupButton: String,
     val accountDeletedSuccessMessage: String,
 
-    // App Updates & Cloud-Synced Content
+    // App Updates, Biometric & Cloud-Synced Content
     val updates: UpdateStrings,
-    val docActions: DocumentActionStrings
+    val docActions: DocumentActionStrings,
+    val biometric: BiometricStrings
 ) {
+    val biometricSubtitleOff: String get() = biometric.biometricSubtitleOff
+    val biometricSubtitleOn: String get() = biometric.biometricSubtitleOn
+    val biometricEnablePromptTitle: String get() = biometric.biometricEnablePromptTitle
+    val biometricEnablePromptSubtitle: String get() = biometric.biometricEnablePromptSubtitle
+    val biometricNotSupportedMessage: String get() = biometric.biometricNotSupportedMessage
+    val biometricHwUnavailableMessage: String get() = biometric.biometricHwUnavailableMessage
+    val biometricNoneEnrolledMessage: String get() = biometric.biometricNoneEnrolledMessage
+    val biometricSecurityUpdateRequiredMessage: String get() = biometric.biometricSecurityUpdateRequiredMessage
+    val biometricStatusUnknownMessage: String get() = biometric.biometricStatusUnknownMessage
+    val biometricAuthFailedMessage: String get() = biometric.biometricAuthFailedMessage
+    val biometricAuthCancelledMessage: String get() = biometric.biometricAuthCancelledMessage
+    val biometricEnabledSuccessMessage: String get() = biometric.biometricEnabledSuccessMessage
+    val biometricDisabledSuccessMessage: String get() = biometric.biometricDisabledSuccessMessage
+    val biometricOpenAndroidSettingsAction: String get() = biometric.biometricOpenAndroidSettingsAction
+    val useAppPinFallback: String get() = biometric.useAppPinFallback
+    val biometricLockSubtitle: String get() = biometric.biometricLockSubtitle
+    val unlockWithDeviceCredential: String get() = biometric.unlockWithDeviceCredential
+    val setPinFallbackPrompt: String get() = biometric.setPinFallbackPrompt
+    val setPinFallbackAction: String get() = biometric.setPinFallbackAction
     val appUpdatesTitle: String get() = updates.appUpdatesTitle
     val settingsUpdatesLink: String get() = updates.settingsUpdatesLink
     val newUpdateAvailableTitle: String get() = updates.newUpdateAvailableTitle
@@ -531,6 +573,50 @@ private val KannadaDocumentActionStrings = DocumentActionStrings(
     moreActionsLabel = "ಹೆಚ್ಚಿನ ಕ್ರಿಯೆಗಳು",
     unauthorizedAccessMessage = "ಪ್ರವೇಶ ನಿರಾಕರಿಸಲಾಗಿದೆ: ಈ ದಾಖಲೆಗೆ ನಿಮಗೆ ಅನುಮತಿ ಇಲ್ಲ.",
     noAppAvailableMessage = "ಈ ದಾಖಲೆಯನ್ನು ತೆರೆಯಲು ಸೂಕ್ತವಾದ ಆ್ಯಪ್ ಕಂಡುಬಂದಿಲ್ಲ."
+)
+
+private val EnglishBiometricStrings = BiometricStrings(
+    biometricSubtitleOff = "Use fingerprint, face, or device biometric to protect FAMVIORA",
+    biometricSubtitleOn = "Enabled — biometric verification required when opening FAMVIORA",
+    biometricEnablePromptTitle = "Enable Biometric Authentication",
+    biometricEnablePromptSubtitle = "Verify your fingerprint or face to enable biometric lock",
+    biometricNotSupportedMessage = "Biometric authentication is not supported on this device.",
+    biometricHwUnavailableMessage = "Biometric hardware is currently unavailable. Please try again later.",
+    biometricNoneEnrolledMessage = "Please set up biometric authentication in Android Settings first.",
+    biometricSecurityUpdateRequiredMessage = "A security update is required to use biometric authentication.",
+    biometricStatusUnknownMessage = "Unable to verify biometric support on this device.",
+    biometricAuthFailedMessage = "Authentication failed. Please try again.",
+    biometricAuthCancelledMessage = "Biometric authentication cancelled.",
+    biometricEnabledSuccessMessage = "Biometric authentication enabled successfully.",
+    biometricDisabledSuccessMessage = "Biometric authentication disabled.",
+    biometricOpenAndroidSettingsAction = "Open Settings",
+    useAppPinFallback = "Use App PIN",
+    biometricLockSubtitle = "Authenticate with your fingerprint or face to access encrypted family records.",
+    unlockWithDeviceCredential = "Unlock with Device Screen Lock",
+    setPinFallbackPrompt = "Set a 4-digit App PIN above as a backup unlock method.",
+    setPinFallbackAction = "Set App PIN"
+)
+
+private val KannadaBiometricStrings = BiometricStrings(
+    biometricSubtitleOff = "FAMVIORA ರಕ್ಷಿಸಲು ಫಿಂಗರ್‌ಪ್ರಿಂಟ್ ಅಥವಾ ಮುಖದ ಅನ್‌ಲಾಕ್ ಬಳಸಿ",
+    biometricSubtitleOn = "ಸಕ್ರಿಯವಾಗಿದೆ — FAMVIORA ತೆರೆದಾಗ ಬಯೋಮೆಟ್ರಿಕ್ ದೃಢೀಕರಣ ಅಗತ್ಯವಿದೆ",
+    biometricEnablePromptTitle = "ಬಯೋಮೆಟ್ರಿಕ್ ದೃಢೀಕರಣ ಸಕ್ರಿಯಗೊಳಿಸಿ",
+    biometricEnablePromptSubtitle = "ಬಯೋಮೆಟ್ರಿಕ್ ಲಾಕ್ ಆನ್ ಮಾಡಲು ನಿಮ್ಮ ಫಿಂಗರ್‌ಪ್ರಿಂಟ್ ಅಥವಾ ಮುಖವನ್ನು ದೃಢೀಕರಿಸಿ",
+    biometricNotSupportedMessage = "ಈ ಸಾಧನದಲ್ಲಿ ಬಯೋಮೆಟ್ರಿಕ್ ದೃಢೀಕರಣ ಬೆಂಬಲಿತವಾಗಿಲ್ಲ.",
+    biometricHwUnavailableMessage = "ಬಯೋಮೆಟ್ರಿಕ್ ಹಾರ್ಡ್‌ವೇರ್ ಪ್ರಸ್ತುತ ಲಭ್ಯವಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
+    biometricNoneEnrolledMessage = "ದಯವಿಟ್ಟು ಮೊದಲು Android ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ ಬಯೋಮೆಟ್ರಿಕ್ ದೃಢೀಕರಣವನ್ನು ಸೆಟಪ್ ಮಾಡಿ.",
+    biometricSecurityUpdateRequiredMessage = "ಬಯೋಮೆಟ್ರಿಕ್ ದೃಢೀಕರಣ ಬಳಸಲು ಭದ್ರತಾ ನವೀಕರಣದ ಅಗತ್ಯವಿದೆ.",
+    biometricStatusUnknownMessage = "ಈ ಸಾಧನದಲ್ಲಿ ಬಯೋಮೆಟ್ರಿಕ್ ಸ್ಥಿತಿಯನ್ನು ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.",
+    biometricAuthFailedMessage = "ದೃಢೀಕರಣ ವಿಫಲವಾಗಿದೆ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
+    biometricAuthCancelledMessage = "ಬಯೋಮೆಟ್ರಿಕ್ ದೃಢೀಕರಣವನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.",
+    biometricEnabledSuccessMessage = "ಬಯೋಮೆಟ್ರಿಕ್ ದೃಢೀಕರಣವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಸಕ್ರಿಯಗೊಳಿಸಲಾಗಿದೆ.",
+    biometricDisabledSuccessMessage = "ಬಯೋಮೆಟ್ರಿಕ್ ದೃಢೀಕರಣವನ್ನು ನಿಷ್ಕ್ರಿಯಗೊಳಿಸಲಾಗಿದೆ.",
+    biometricOpenAndroidSettingsAction = "ಸೆಟ್ಟಿಂಗ್ಸ್ ತೆರೆಯಿರಿ",
+    useAppPinFallback = "ಆ್ಯಪ್ PIN ಬಳಸಿ",
+    biometricLockSubtitle = "ಎನ್‌ಕ್ರಿಪ್ಟ್ ಮಾಡಿದ ಕುಟುಂಬ ದಾಖಲೆಗಳನ್ನು ತೆರೆಯಲು ನಿಮ್ಮ ಫಿಂಗರ್‌ಪ್ರಿಂಟ್ ಅಥವಾ ಮುಖವನ್ನು ಪರಿಶೀಲಿಸಿ.",
+    unlockWithDeviceCredential = "ಸಾಧನದ ಸ್ಕ್ರೀನ್ ಲಾಕ್ ಮೂಲಕ ಅನ್‌ಲಾಕ್ ಮಾಡಿ",
+    setPinFallbackPrompt = "ಹೆಚ್ಚುವರಿ ಬ್ಯಾಕಪ್ ಆಗಿ ಮೇಲೆ 4-ಅಂಕಿಯ ಆ್ಯಪ್ PIN ಸೆಟ್ ಮಾಡಿ.",
+    setPinFallbackAction = "ಆ್ಯಪ್ PIN ಸೆಟ್ ಮಾಡಿ"
 )
 
 val EnglishStrings = AppStrings(
@@ -773,7 +859,8 @@ val EnglishStrings = AppStrings(
     accountDeletedSuccessMessage = "Your account and associated data have been permanently deleted.",
 
     updates = EnglishUpdateStrings,
-    docActions = EnglishDocumentActionStrings
+    docActions = EnglishDocumentActionStrings,
+    biometric = EnglishBiometricStrings
 )
 
 val KannadaStrings = AppStrings(
@@ -1016,7 +1103,8 @@ val KannadaStrings = AppStrings(
     accountDeletedSuccessMessage = "ನಿಮ್ಮ ಖಾತೆ ಮತ್ತು ಸಂಬಂಧಿತ ಡೇಟಾವನ್ನು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗಿದೆ.",
 
     updates = KannadaUpdateStrings,
-    docActions = KannadaDocumentActionStrings
+    docActions = KannadaDocumentActionStrings,
+    biometric = KannadaBiometricStrings
 )
 
 fun stringsForLanguage(code: String): AppStrings =

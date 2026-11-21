@@ -77,8 +77,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.documents.DocumentTransferManager
@@ -90,6 +93,8 @@ import com.example.data.firebase.FamilyVaultRepository
 import com.example.data.security.DocumentCryptoManager
 import com.example.data.security.SecurityPreferences
 import com.example.data.security.SecuritySettings
+import com.example.data.security.buildBiometricEnrollIntent
+import com.example.data.security.findFragmentActivity
 import com.example.data.update.AppUpdateRepository
 import com.example.data.update.AppUpdateState
 import com.example.data.update.UpdatePhase
@@ -129,6 +134,7 @@ import com.example.ui.viewmodel.MainViewModel
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
+import androidx.compose.runtime.DisposableEffect
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -617,7 +623,9 @@ private fun AuthenticatedVaultShell(
     val backupStatus by viewModel.backupStatus.collectAsStateWithLifecycle()
     val effectiveCloudConfig by viewModel.effectiveCloudConfig.collectAsStateWithLifecycle()
     val settings by viewModel.securitySettings.collectAsStateWithLifecycle()
+    val isSecuritySettingsLoaded by viewModel.isSecuritySettingsLoaded.collectAsStateWithLifecycle()
     val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsStateWithLifecycle()
+    val biometricUiFeedback by viewModel.biometricUiFeedback.collectAsStateWithLifecycle()
     val isActionBusy by viewModel.isActionBusy.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val transferState by viewModel.transferState.collectAsStateWithLifecycle()
@@ -625,6 +633,31 @@ private fun AuthenticatedVaultShell(
     val snackbarHostState = remember { SnackbarHostState() }
     val shellScope = rememberCoroutineScope()
     var isAccountActionBusy by remember { mutableStateOf(false) }
+    var suppressNextBackgroundLock by remember { mutableStateOf(false) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, settings.pinEnabled, settings.biometricEnabled) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    val activity = context.findFragmentActivity()
+                    val isChangingConfig = activity?.isChangingConfigurations == true
+                    if (!isChangingConfig && !suppressNextBackgroundLock &&
+                        !viewModel.isBiometricPromptActive &&
+                        (settings.pinEnabled || settings.biometricEnabled)
+                    ) {
+                        viewModel.lockVault()
+                    }
+                }
+                Lifecycle.Event.ON_START -> {
+                    suppressNextBackgroundLock = false
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(statusMessage) {
         val msg = statusMessage ?: return@LaunchedEffect
@@ -661,9 +694,11 @@ private fun AuthenticatedVaultShell(
             mimeType = mimeType,
             chooserTitle = strings.docActions.openWithLabel
         )
+        suppressNextBackgroundLock = true
         runCatching {
             context.startActivity(openIntent)
         }.onFailure {
+            suppressNextBackgroundLock = false
             shellScope.launch {
                 snackbarHostState.showSnackbar(strings.docActions.noAppAvailableMessage)
             }
@@ -674,7 +709,9 @@ private fun AuthenticatedVaultShell(
         shellScope.launch {
             viewModel.prepareShareSingle(doc, strings.shareDocument)
                 .onSuccess { intent ->
+                    suppressNextBackgroundLock = true
                     runCatching { context.startActivity(intent) }.onFailure {
+                        suppressNextBackgroundLock = false
                         snackbarHostState.showSnackbar(strings.docActions.noAppAvailableMessage)
                     }
                 }
@@ -685,7 +722,9 @@ private fun AuthenticatedVaultShell(
         shellScope.launch {
             viewModel.prepareShareMultiple(docs, strings.docActions.shareMultipleAction)
                 .onSuccess { intent ->
+                    suppressNextBackgroundLock = true
                     runCatching { context.startActivity(intent) }.onFailure {
+                        suppressNextBackgroundLock = false
                         snackbarHostState.showSnackbar(strings.docActions.noAppAvailableMessage)
                     }
                 }
@@ -696,7 +735,9 @@ private fun AuthenticatedVaultShell(
         shellScope.launch {
             viewModel.prepareOpenWith(doc, strings.docActions.openWithLabel)
                 .onSuccess { intent ->
+                    suppressNextBackgroundLock = true
                     runCatching { context.startActivity(intent) }.onFailure {
+                        suppressNextBackgroundLock = false
                         snackbarHostState.showSnackbar(strings.docActions.noAppAvailableMessage)
                     }
                 }
@@ -722,7 +763,9 @@ private fun AuthenticatedVaultShell(
         userProfileState,
         familyAccount,
         documentsState,
+        isSecuritySettingsLoaded,
         settings.pinEnabled,
+        settings.biometricEnabled,
         isVaultUnlocked
     ) {
         val uri = pendingVaultLinkUri ?: return@LaunchedEffect
@@ -731,13 +774,15 @@ private fun AuthenticatedVaultShell(
             onConsumeVaultLink()
             return@LaunchedEffect
         }
+        if (!isSecuritySettingsLoaded) return@LaunchedEffect
         val profileOk = userProfileState as? UiState.Success ?: return@LaunchedEffect
         val profile = profileOk.data
         if (profile == null || profile.familyId.isBlank()) {
             onConsumeVaultLink()
             return@LaunchedEffect
         }
-        if (settings.pinEnabled && !isVaultUnlocked) return@LaunchedEffect
+        val isAppLockEnabled = settings.pinEnabled || settings.biometricEnabled
+        if (isAppLockEnabled && !isVaultUnlocked) return@LaunchedEffect
         val family = familyAccount ?: return@LaunchedEffect
         val docsOk = documentsState as? UiState.Success ?: return@LaunchedEffect
 
@@ -800,14 +845,32 @@ private fun AuthenticatedVaultShell(
         }
 
         is UiState.Success -> {
-            val userProfile = profileRes.data
+            if (!isSecuritySettingsLoaded) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = NavyPrimary)
+                }
+                return
+            }
 
-            if (settings.pinEnabled && !isVaultUnlocked) {
+            val userProfile = profileRes.data
+            val isAppLockEnabled = settings.pinEnabled || settings.biometricEnabled
+
+            if (isAppLockEnabled && !isVaultUnlocked) {
                 PinLockScreen(
                     mode = PinMode.UNLOCK,
+                    pinEnabled = settings.pinEnabled,
                     biometricEnabled = settings.biometricEnabled,
                     verifyPin = viewModel::verifyPin,
-                    onPinVerifiedOrSaved = { viewModel.unlockVault() }
+                    onPinVerifiedOrSaved = { viewModel.unlockVault() },
+                    onSignOut = {
+                        viewModel.lockVault()
+                        onSignOut()
+                    }
                 )
                 return
             }
@@ -910,7 +973,8 @@ private fun AuthenticatedVaultShell(
                         onOpenWith = { openWithDocument(selectedDocument) },
                         onCopyLink = { copyAuthorizedLink(selectedDocument) },
                         onOpenSavedFile = ::openSavedDocumentUri,
-                        onDismissTransferState = viewModel::dismissTransferState
+                        onDismissTransferState = viewModel::dismissTransferState,
+                        onExternalPickerLaunching = { suppressNextBackgroundLock = true }
                     )
                     SnackbarHost(
                         hostState = snackbarHostState,
@@ -932,8 +996,14 @@ private fun AuthenticatedVaultShell(
                         onCheckForUpdates = onCheckForUpdates,
                         onStartDownloadAndInstall = onStartDownloadAndInstall,
                         onCancelDownload = onCancelDownload,
-                        onLaunchVerifiedInstaller = onLaunchVerifiedInstaller,
-                        onRequestInstallPermission = onRequestInstallPermission,
+                        onLaunchVerifiedInstaller = { apkFile ->
+                            suppressNextBackgroundLock = true
+                            onLaunchVerifiedInstaller(apkFile)
+                        },
+                        onRequestInstallPermission = {
+                            suppressNextBackgroundLock = true
+                            onRequestInstallPermission()
+                        },
                         onSaveFamilyCloudConfig = { noticeActive, titleEn, titleKn, bodyEn, bodyKn, level, bannerEn, bannerKn, categories, expiryDays, showSamples ->
                             viewModel.saveFamilyCloudConfig(
                                 noticeActive = noticeActive,
@@ -1106,7 +1176,8 @@ private fun AuthenticatedVaultShell(
                                         viewModel.downloadMultipleToTreeUri(docsToSave, treeUri)
                                     },
                                     onOpenSavedFile = ::openSavedDocumentUri,
-                                    onDismissTransferState = viewModel::dismissTransferState
+                                    onDismissTransferState = viewModel::dismissTransferState,
+                                    onExternalPickerLaunching = { suppressNextBackgroundLock = true }
                                 )
                             }
 
@@ -1196,16 +1267,34 @@ private fun AuthenticatedVaultShell(
                                     onSelectThemeMode = viewModel::setThemeMode,
                                     onSetupOrChangePin = { showPinSetup = true },
                                     onDisablePin = { viewModel.disablePin() },
-                                    onToggleBiometric = viewModel::setBiometricEnabled,
+                                    onToggleBiometric = { requested ->
+                                        viewModel.handleBiometricToggleRequest(
+                                            requestedEnabled = requested,
+                                            activity = context.findFragmentActivity(),
+                                            strings = strings
+                                        )
+                                    },
                                     onToggleExpiryReminders = viewModel::setExpiryRemindersEnabled,
                                     onCheckExpiriesNow = viewModel::checkExpiriesAndNotifyNow,
                                     onOpenBackupCenter = { currentTab = VaultTab.BACKUP },
                                     onOpenAdminPanel = { showAdminPanel = true },
-                                    onLogout = onSignOut,
+                                    onLogout = {
+                                        viewModel.lockVault()
+                                        onSignOut()
+                                    },
                                     onConfirmDeleteAccount = onRequestDeleteAccount,
                                     hasUpdateAvailable = updateState.hasUpdate,
                                     installedVersionLabel = "v${updateState.installedVersionName} (${updateState.installedVersionCode})",
-                                    onOpenUpdates = { showUpdateScreen = true }
+                                    onOpenUpdates = { showUpdateScreen = true },
+                                    biometricFeedback = biometricUiFeedback,
+                                    onOpenDeviceBiometricSettings = {
+                                        suppressNextBackgroundLock = true
+                                        runCatching {
+                                            context.startActivity(buildBiometricEnrollIntent(context))
+                                        }.onFailure {
+                                            suppressNextBackgroundLock = false
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -1231,6 +1320,7 @@ private fun AuthenticatedVaultShell(
                             onChooseFolder = {
                                 homePendingDownloadDoc = null
                                 homePendingSafDoc = targetDoc
+                                suppressNextBackgroundLock = true
                                 homeSafCreateLauncher.launch(
                                     DocumentTransferManager.buildSafeFileName(targetDoc) to
                                         DocumentTransferManager.resolveMimeType(targetDoc)

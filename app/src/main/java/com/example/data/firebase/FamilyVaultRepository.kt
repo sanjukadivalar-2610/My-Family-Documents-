@@ -205,6 +205,10 @@ class FamilyVaultRepository(
     }
 
     fun observeUserProfile(uid: String): Flow<UserProfile?> = flow {
+        if (auth.currentUser?.uid.isNullOrBlank()) {
+            emit(null)
+            return@flow
+        }
         val path = "users/$uid"
         emitAll(
             db.collection("users").document(uid)

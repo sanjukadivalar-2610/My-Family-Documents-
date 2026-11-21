@@ -2,19 +2,31 @@ package com.example.data.security
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.preferences.preferencesDataStoreFile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
-private val Context.vaultDataStore: DataStore<Preferences> by preferencesDataStore(name = "my_family_doc_prefs")
+private val vaultDataStoreCache = HashMap<String, DataStore<Preferences>>()
+
+private val Context.vaultDataStore: DataStore<Preferences>
+    get() {
+        val file = applicationContext.preferencesDataStoreFile("my_family_doc_prefs")
+        val key = file.canonicalPath
+        return synchronized(vaultDataStoreCache) {
+            vaultDataStoreCache.getOrPut(key) {
+                PreferenceDataStoreFactory.create(produceFile = { file })
+            }
+        }
+    }
 
 enum class ThemeMode(val key: String) {
     SYSTEM("system"),
@@ -88,7 +100,6 @@ class SecurityPreferences(private val context: Context) {
             it[KEY_PIN_ENABLED] = false
             it[KEY_PIN_HASH] = ""
             it[KEY_PIN_SALT] = ""
-            it[KEY_BIOMETRIC_ENABLED] = false
         }
     }
 

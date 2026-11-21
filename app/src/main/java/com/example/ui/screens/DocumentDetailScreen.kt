@@ -122,7 +122,8 @@ fun DocumentDetailScreen(
     onOpenWith: (() -> Unit)? = null,
     onCopyLink: (() -> Unit)? = null,
     onOpenSavedFile: ((Uri, String) -> Unit)? = null,
-    onDismissTransferState: (() -> Unit)? = null
+    onDismissTransferState: (() -> Unit)? = null,
+    onExternalPickerLaunching: () -> Unit = {}
 ) {
     val strings = LocalAppStrings.current
     val context = LocalContext.current
@@ -170,6 +171,7 @@ fun DocumentDetailScreen(
                     contentUri = contentUri,
                     chooserTitle = strings.shareDocument
                 )
+                onExternalPickerLaunching()
                 runCatching { context.startActivity(shareIntent) }
             }
         }
@@ -192,6 +194,7 @@ fun DocumentDetailScreen(
                     mimeType = mimeType,
                     chooserTitle = strings.docActions.openWithLabel
                 )
+                onExternalPickerLaunching()
                 runCatching { context.startActivity(openIntent) }
             }
         }
@@ -201,6 +204,7 @@ fun DocumentDetailScreen(
         if (onDownloadToDownloads != null) {
             showDownloadDestinationDialog = true
         } else {
+            onExternalPickerLaunching()
             createDocLauncher.launch(safeFileName to mimeType)
         }
     }
@@ -532,6 +536,7 @@ fun DocumentDetailScreen(
             },
             onChooseFolder = {
                 showDownloadDestinationDialog = false
+                onExternalPickerLaunching()
                 createDocLauncher.launch(safeFileName to mimeType)
             },
             onDismiss = { showDownloadDestinationDialog = false }
